@@ -106,6 +106,7 @@ data Judgement' a = Judgement
   , _jPositionMaps :: !(Map OccName [[OccName]])
   , _jAncestry     :: !(Map OccName (Set OccName))
   , _jIsTopHole    :: !Bool
+  , _jAutoGas      :: !Int
   , _jGoal         :: !(a)
   }
   deriving stock (Eq, Ord, Generic, Functor, Show)

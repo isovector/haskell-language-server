@@ -175,6 +175,12 @@ isTopHole = _jIsTopHole
 unsetIsTopHole :: Judgement' a -> Judgement' a
 unsetIsTopHole = field @"_jIsTopHole" .~ False
 
+withGas :: (Int -> Int) -> Judgement' a -> Judgement' a
+withGas f = field @"_jAutoGas" %~ f
+
+jGas :: Judgement' a -> Int
+jGas = _jAutoGas
+
 
 ------------------------------------------------------------------------------
 -- | Only the hypothesis members which are pattern vals
@@ -205,6 +211,7 @@ mkFirstJudgement hy top posvals goal = Judgement
   , _jPositionMaps      = posvals
   , _jAncestry          = mempty
   , _jIsTopHole         = top
+  , _jAutoGas           = 0
   , _jGoal              = CType goal
   }
 

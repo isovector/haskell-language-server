@@ -13,10 +13,12 @@ module Ide.Plugin.Tactic.Tactics
   , runTactic
   ) where
 
+import           Control.Monad
 import           Control.Monad.Except (throwError)
 import           Control.Monad.Reader.Class (MonadReader(ask))
 import           Control.Monad.State.Class
 import           Control.Monad.State.Strict (StateT(..), runStateT)
+import           Data.Bool (bool)
 import           Data.List
 import qualified Data.Map as M
 import           Data.Maybe
@@ -33,12 +35,11 @@ import           Ide.Plugin.Tactic.Judgements
 import           Ide.Plugin.Tactic.Machinery
 import           Ide.Plugin.Tactic.Naming
 import           Ide.Plugin.Tactic.Types
-import           Name (nameOccName)
 import           Refinery.Tactic
 import           Refinery.Tactic.Internal
 import           TcType
 import           Type hiding (Var)
-import Data.Bool (bool)
+import Control.Applicative
 
 
 ------------------------------------------------------------------------------
@@ -171,6 +172,7 @@ apply' f func = do
                             newSubgoal
                           . f i
                           . blacklistingDestruct
+                          . withGas (subtract 1)
                           . flip withNewGoal jdg
                           $ CType t
                           ) $ zip [0..] args
@@ -191,7 +193,7 @@ split = do
     Nothing -> throwError $ GoalMismatch "split" g
     Just (tc, _) -> do
       let dcs = tyConDataCons tc
-      choice $ fmap splitDataCon dcs
+      choice $ fmap (splitDataCon dcs) dcs
 
 ------------------------------------------------------------------------------
 -- | Choose between each of the goal's data constructors.
@@ -205,7 +207,7 @@ splitAuto = do
       let dcs = tyConDataCons tc
       -- TODO(sandy): Figure out the right strategy for pruning splits of
       -- splits
-      choice $ fmap splitDataCon dcs
+      choice $ fmap (splitDataCon dcs) dcs
       -- case isSplitWhitelisted jdg of
       --   True -> choice $ fmap splitDataCon dcs
       --   False -> do
@@ -219,13 +221,16 @@ splitAuto = do
 
 ------------------------------------------------------------------------------
 -- | Attempt to instantiate the given data constructor to solve the goal.
-splitDataCon :: DataCon -> TacticsM ()
-splitDataCon dc = rule $ \jdg -> do
+splitDataCon
+    :: [DataCon]  -- all datacons; used to determine if we should spend gas
+    -> DataCon    -- the datacon to actually build
+    -> TacticsM ()
+splitDataCon dcs dc = rule $ \jdg -> do
   let g = jGoal jdg
   case splitTyConApp_maybe $ unCType g of
     Just (tc, apps) -> do
       case elem dc $ tyConDataCons tc of
-        True -> buildDataCon (unwhitelistingSplit jdg) dc apps
+        True -> buildDataCon (unwhitelistingSplit $ useGasForDatacons dcs jdg) dc apps
         False -> throwError $ IncorrectDataCon dc
     Nothing -> throwError $ GoalMismatch "splitDataCon" g
 
@@ -248,19 +253,23 @@ localTactic t f = do
 
 
 auto' :: Int -> TacticsM ()
-auto' 0 = throwError NoProgress
-auto' n = do
-  let loop = auto' (n - 1)
+auto' = localTactic auto'' . withGas . const
+
+
+auto'' :: TacticsM ()
+auto'' = do
+  jdg <- goal
+  when (jGas jdg <= 0) $ throwError NoProgress
   try intros
   choice
     [ overFunctions $ \fname -> do
         apply fname
-        loop
+        auto''
     , overAlgebraicTerms $ \aname -> do
         destructAuto aname
-        loop
-    , splitAuto >> loop
-    , assumption >> loop
+        auto''
+    , splitAuto >> auto''
+    , assumption >> auto''
     , recursion
     ]
 

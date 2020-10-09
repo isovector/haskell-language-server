@@ -60,6 +60,7 @@ destructMatches f f2 t jdg = do
               j = f2 hy'
                 $ withPositionMapping dcon_name names
                 $ introducingPat hy'
+                $ useGasForDatacons dcs
                 $ withNewGoal g jdg
           sg <- f dc j
           modify $ withIntroducedVals $ mappend $ S.fromList names
@@ -121,6 +122,11 @@ buildDataCon jdg dc apps = do
     . foldl' (@@)
         (HsVar noExtField $ noLoc $ Unqual $ nameOccName $ dataConName dc)
     $ fmap unLoc sgs
+
+
+useGasForDatacons :: [DataCon] -> Judgement -> Judgement
+useGasForDatacons [x] = traceX "no gas used" (occName $ dataConName x) id
+useGasForDatacons _   = withGas (subtract 1)
 
 
 ------------------------------------------------------------------------------
