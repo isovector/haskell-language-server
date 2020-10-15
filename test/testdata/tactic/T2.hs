@@ -19,3 +19,6 @@ data T2 = T21 Int | T22 Int Int
 
 suggestCons :: T2
 suggestCons = _
+
+suggestInt :: Int
+suggestInt = _

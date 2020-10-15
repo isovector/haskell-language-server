@@ -81,6 +81,11 @@ tests = testGroup
       [ (id, DestructLambdaCase, "")
       ]
   , mkTest
+      "Produces I# with -XMagicHash"
+      "T3.hs" 10 14
+      [ (id, Split, "I#")
+      ]
+  , mkTest
       "Produces datatype split action for single-constructor types"
       "T2.hs" 16 14
       [ (id, Split, "T")
@@ -90,6 +95,11 @@ tests = testGroup
       "T2.hs" 21 15
       [ (id, Split, "T21")
       , (id, Split, "T22")
+      ]
+  , mkTest
+      "Doesn't suggest MagicHash constructors without -XMagicHash"
+      "T2.hs" 24 14
+      [ (not, Split, "I#")
       ]
   , mkTest
       "Doesn't suggest lambdacase without -XLambdaCase"

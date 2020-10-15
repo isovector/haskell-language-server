@@ -21,6 +21,7 @@ import           Control.Monad.Trans.Maybe
 import           Data.Aeson
 import           Data.Coerce
 import qualified Data.Foldable as F
+import qualified Data.List as L
 import qualified Data.Map as M
 import           Data.Maybe
 import qualified Data.Set as S
@@ -37,7 +38,7 @@ import           Development.Shake (Action)
 import           DynFlags (xopt)
 import qualified FastString
 import           GHC.Generics (Generic)
-import           GHC.LanguageExtensions.Type (Extension (LambdaCase))
+import           GHC.LanguageExtensions.Type (Extension (LambdaCase, MagicHash))
 import           Ide.Plugin (mkLspCommand)
 import           Ide.Plugin.Tactic.Context
 import           Ide.Plugin.Tactic.GHC
@@ -95,7 +96,9 @@ commandProvider Intros =
     provide Intros ""
 commandProvider Split =
   foldMapGoalType (F.fold . tyDataCons) $ \dc ->
-    provide Split $ T.pack $ occNameString $ getOccName dc
+    let cname = occNameString $ getOccName dc
+    in  requireExtensionWhen MagicHash ("#" `L.isSuffixOf` cname) $
+      provide Split $ T.pack cname
 commandProvider Destruct =
   filterBindingType destructFilter $ \occ _ ->
     provide Destruct $ T.pack $ occNameString occ
@@ -188,6 +191,13 @@ requireExtension ext tp dflags plId uri range jdg =
   case xopt ext dflags of
     True  -> tp dflags plId uri range jdg
     False -> pure []
+
+
+------------------------------------------------------------------------------
+-- | Like 'requireExtension' but only check if the bool is @True@.
+requireExtensionWhen :: Extension -> Bool -> TacticProvider -> TacticProvider
+requireExtensionWhen ext True = requireExtension ext
+requireExtensionWhen _ False = id
 
 
 ------------------------------------------------------------------------------
