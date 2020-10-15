@@ -68,7 +68,7 @@ instance Show DataCon where
 
 ------------------------------------------------------------------------------
 data TacticState = TacticState
-    { ts_skolems   :: !([TyVar])
+    { ts_skolems   :: !(Set TyVar)
     , ts_unifier   :: !(TCvSubst)
     , ts_used_vals :: !(Set OccName)
     , ts_intro_vals :: !(Set OccName)

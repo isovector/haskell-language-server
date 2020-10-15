@@ -40,6 +40,7 @@ import           Refinery.Tactic
 import           Refinery.Tactic.Internal
 import           TcType
 import           Type hiding (Var)
+import Control.Applicative
 
 
 ------------------------------------------------------------------------------
@@ -167,7 +168,7 @@ apply' f func = tracing ("apply' " <> show func) $ do
         g  = jGoal jdg
     case M.lookup func hy of
       Just (CType ty) -> do
-          let (args, ret) = splitFunTys ty
+          let (_, _, args, ret) = tacticsSplitFunTy ty
           unify g (CType ret)
           useOccName jdg func
           (tr, sgs)
@@ -267,7 +268,14 @@ auto' n = do
     , splitAuto >> loop
     , assumption >> loop
     , recursion
+    , leaveHole
     ]
+
+leaveHole :: TacticsM ()
+leaveHole = do
+  jdg <- goal
+  tracing ("hole :: " <> show (jGoal jdg) <> " {" <> intercalate ", " (fmap show $ M.toList $ jHypothesis jdg) <> "}") $ rule newSubgoal
+
 
 overFunctions :: (OccName -> TacticsM ()) -> TacticsM ()
 overFunctions =

@@ -7,6 +7,7 @@ import Ide.Plugin.Tactic.Tactics
 import Ide.Plugin.Tactic.Types
 import Refinery.Tactic
 import Ide.Plugin.Tactic.Machinery (tracing)
+import Control.Monad.State.Class (gets)
 
 
 ------------------------------------------------------------------------------
@@ -15,8 +16,10 @@ auto :: TacticsM ()
 auto = do
   jdg <- goal
   current <- getCurrentDefinitions
+  skolems <- gets ts_skolems
   traceMX "goal" jdg
   traceMX "ctx" current
+  traceMX "skolems" skolems
   commit knownStrategies
     . tracing "auto"
     . localTactic (auto' 4)

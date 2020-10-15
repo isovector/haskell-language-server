@@ -187,6 +187,10 @@ jGoal :: Judgement' a -> a
 jGoal = _jGoal
 
 
+jLocalHypothesis :: Judgement' a -> Map OccName a
+jLocalHypothesis = jHypothesis
+
+
 substJdg :: TCvSubst -> Judgement -> Judgement
 substJdg subst = fmap $ coerce . substTy subst . coerce
 

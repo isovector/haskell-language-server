@@ -300,7 +300,7 @@ tacticCmd tac lf state (TacticParams uri range var_name)
               let g = graft (RealSrcSpan span) ext
                   response = transform dflags (clientCapabilities lf) uri g pm
               pure $ case response of
-                Right res -> (Right Null , Just (WorkspaceApplyEdit, ApplyWorkspaceEditParams res))
+                Right res -> (Right Null, Just (WorkspaceApplyEdit, ApplyWorkspaceEditParams res))
                 Left err -> (Left $ ResponseError InternalError (T.pack err) Nothing, Nothing)
         pure $ case x of
           Just y -> y

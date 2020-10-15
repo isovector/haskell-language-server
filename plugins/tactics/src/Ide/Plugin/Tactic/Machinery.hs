@@ -18,14 +18,18 @@ module Ide.Plugin.Tactic.Machinery
   ) where
 
 import           Control.Applicative
+import           Control.Arrow
 import           Control.Monad.Error.Class
 import           Control.Monad.Reader
 import           Control.Monad.State (MonadState(..))
 import           Control.Monad.State.Class (gets, modify)
+import           Control.Monad.State.Strict (StateT (..))
 import           Data.Coerce
 import           Data.Either
 import           Data.List (intercalate, sortBy)
+import qualified Data.Map as M
 import           Data.Ord (comparing, Down(..))
+import           Data.Set (Set)
 import qualified Data.Set as S
 import           Development.IDE.GHC.Compat
 import           Ide.Plugin.Tactic.Judgements
@@ -36,8 +40,7 @@ import           Refinery.Tactic.Internal
 import           TcType
 import           Type
 import           Unify
-import Control.Arrow
-import Control.Monad.State.Strict (StateT (..))
+import Ide.Plugin.Tactic.GHC
 
 
 substCTy :: TCvSubst -> CType -> CType
@@ -57,6 +60,10 @@ newSubgoal j = do
       $ unsetIsTopHole j
 
 
+getSkolems :: CType -> Set TyVar
+getSkolems = S.fromList . tyCoVarsOfTypeWellScoped . unCType
+
+
 ------------------------------------------------------------------------------
 -- | Attempt to generate a term of the right type using in-scope bindings, and
 -- a given tactic.
@@ -66,7 +73,9 @@ runTactic
     -> TacticsM ()       -- ^ Tactic to use
     -> Either [TacticError] (Trace, LHsExpr GhcPs)
 runTactic ctx jdg t =
-    let skolems = tyCoVarsOfTypeWellScoped $ unCType $ jGoal jdg
+    let skolems = foldMap getSkolems
+                $ jGoal jdg
+                : fmap snd (M.toList $ jLocalHypothesis jdg)
         tacticState = defaultTacticState { ts_skolems = skolems }
     in case partitionEithers
           . flip runReader ctx
@@ -224,7 +233,12 @@ proofs' s p = go s [] p
 -- This is fine from the perspective of 'tcUnifyTy', but will cause obvious
 -- type errors in our use case. Therefore, we need to ensure that our
 -- 'TCvSubst' doesn't try to unify skolems.
-checkSkolemUnification :: CType -> CType -> TCvSubst -> RuleM ()
+checkSkolemUnification
+    :: (MonadError TacticError m, MonadState TacticState m)
+    => CType
+    -> CType
+    -> TCvSubst
+    -> m ()
 checkSkolemUnification t1 t2 subst = do
     skolems <- gets ts_skolems
     unless (all (flip notElemTCvSubst subst) skolems) $
@@ -233,13 +247,21 @@ checkSkolemUnification t1 t2 subst = do
 
 ------------------------------------------------------------------------------
 -- | Attempt to unify two types.
-unify :: CType -- ^ The goal type
-      -> CType -- ^ The type we are trying unify the goal type with
-      -> RuleM ()
-unify goal inst =
+unify
+    :: (MonadState TacticState m, MonadError TacticError m)
+    => CType -- ^ The goal type
+    -> CType -- ^ The type we are trying unify the goal type with
+    -> m ()
+unify goal inst = do
     case tcUnifyTy (unCType inst) (unCType goal) of
       Just subst -> do
           checkSkolemUnification inst goal subst
           modify (\s -> s { ts_unifier = unionTCvSubst subst (ts_unifier s) })
       Nothing -> throwError (UnificationError inst goal)
+
+
+isUniVar :: TacticState -> CType -> Bool
+isUniVar ts (CType (tcTyVar_maybe -> Just tv)) =
+  S.notMember tv $ ts_skolems ts
+isUniVar _ _ = False
 
