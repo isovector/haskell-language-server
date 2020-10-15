@@ -3,6 +3,7 @@
 module Ide.Plugin.Tactic.GHC where
 
 import Data.Maybe (isJust)
+import DataCon
 import TcType
 import TyCoRep
 import TyCon
@@ -66,4 +67,12 @@ lambdaCaseable (splitFunTy_maybe -> Just (arg, res))
   | isJust (algebraicTyCon arg)
   = Just $ isJust $ algebraicTyCon res
 lambdaCaseable _ = Nothing
+
+
+------------------------------------------------------------------------------
+-- | What data-constructor, if any, does the type have?
+tyDataCons :: Type -> Maybe [DataCon]
+tyDataCons g = do
+  (tc, _) <- splitTyConApp_maybe g
+  pure $ tyConDataCons tc
 

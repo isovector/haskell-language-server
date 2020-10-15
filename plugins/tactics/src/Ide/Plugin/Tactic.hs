@@ -20,6 +20,7 @@ import           Control.Monad.Trans
 import           Control.Monad.Trans.Maybe
 import           Data.Aeson
 import           Data.Coerce
+import qualified Data.Foldable as F
 import qualified Data.Map as M
 import           Data.Maybe
 import qualified Data.Set as S
@@ -92,6 +93,9 @@ commandProvider Auto  = provide Auto ""
 commandProvider Intros =
   filterGoalType isFunction $
     provide Intros ""
+commandProvider Split =
+  foldMapGoalType (F.fold . tyDataCons) $ \dc ->
+    provide Split $ T.pack $ occNameString $ getOccName dc
 commandProvider Destruct =
   filterBindingType destructFilter $ \occ _ ->
     provide Destruct $ T.pack $ occNameString occ
@@ -110,11 +114,12 @@ commandProvider HomomorphismLambdaCase =
 
 ------------------------------------------------------------------------------
 -- | A mapping from tactic commands to actual tactics for refinery.
-commandTactic :: TacticCommand -> OccName -> TacticsM ()
+commandTactic :: TacticCommand -> String -> TacticsM ()
 commandTactic Auto         = const auto
 commandTactic Intros       = const intros
-commandTactic Destruct     = destruct
-commandTactic Homomorphism = homo
+commandTactic Split        = splitDataCon' . mkDataOcc
+commandTactic Destruct     = destruct . mkVarOcc
+commandTactic Homomorphism = homo . mkVarOcc
 commandTactic DestructLambdaCase     = const destructLambdaCase
 commandTactic HomomorphismLambdaCase = const homoLambdaCase
 
@@ -183,6 +188,14 @@ requireExtension ext tp dflags plId uri range jdg =
   case xopt ext dflags of
     True  -> tp dflags plId uri range jdg
     False -> pure []
+
+
+------------------------------------------------------------------------------
+-- | Create a 'TacticProvider' for each occurance of an 'a' in the foldable container
+-- extracted from the goal type. Useful instantiations for 't' include 'Maybe' or '[]'.
+foldMapGoalType :: Foldable t => (Type -> t a) -> (a -> TacticProvider) -> TacticProvider
+foldMapGoalType f tpa dflags plId uri range jdg =
+  foldMap tpa (f $ unCType $ jGoal jdg) dflags plId uri range jdg
 
 
 ------------------------------------------------------------------------------
@@ -259,7 +272,7 @@ judgementForHole state nfp range = do
 
 
 
-tacticCmd :: (OccName -> TacticsM ()) -> CommandFunction TacticParams
+tacticCmd :: (String -> TacticsM ()) -> CommandFunction TacticParams
 tacticCmd tac lf state (TacticParams uri range var_name)
   | Just nfp <- uriToNormalizedFilePath $ toNormalizedUri uri =
       fromMaybeT (Right Null, Nothing) $ do
@@ -268,7 +281,6 @@ tacticCmd tac lf state (TacticParams uri range var_name)
         pm <- MaybeT $ useAnnotatedSource "tacticsCmd" state nfp
         case runTactic ctx jdg
               $ tac
-              $ mkVarOcc
               $ T.unpack var_name of
           Left err ->
             pure $ (, Nothing)

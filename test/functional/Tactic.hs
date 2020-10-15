@@ -81,6 +81,11 @@ tests = testGroup
       [ (id, DestructLambdaCase, "")
       ]
   , mkTest
+      "Produces datatype split actions"
+      "T2.hs" 16 14
+      [ (id, Split, "T")
+      ]
+  , mkTest
       "Doesn't suggest lambdacase without -XLambdaCase"
       "T2.hs" 11 25
       [ (not, DestructLambdaCase, "")
