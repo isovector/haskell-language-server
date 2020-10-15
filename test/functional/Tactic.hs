@@ -81,9 +81,15 @@ tests = testGroup
       [ (id, DestructLambdaCase, "")
       ]
   , mkTest
-      "Produces datatype split actions"
+      "Produces datatype split action for single-constructor types"
       "T2.hs" 16 14
       [ (id, Split, "T")
+      ]
+  , mkTest
+      "Produces datatype split action for multiple constructors"
+      "T2.hs" 21 15
+      [ (id, Split, "T21")
+      , (id, Split, "T22")
       ]
   , mkTest
       "Doesn't suggest lambdacase without -XLambdaCase"
@@ -100,6 +106,7 @@ tests = testGroup
   , goldenTest "GoldenPureList.hs"          2 12 Auto ""
   , goldenTest "GoldenGADTDestruct.hs"      7 17 Destruct "gadt"
   , goldenTest "GoldenGADTAuto.hs"          7 13 Auto ""
+  , goldenTest "GoldenSplitPair.hs"         2 11 Split "(,)"
   ]
 
 
