@@ -68,7 +68,6 @@ recursion = requireConcreteHole $ tracing "recursion" $ do
   defs <- getCurrentDefinitions
   attemptOn (const $ fmap fst defs) $ \name -> do
     modify $ pushRecursionStack .  countRecursiveCall
-    jdg <- goal
     ensure guardStructurallySmallerRecursion popRecursionStack $ do
       (localTactic (apply name) $ introducingRecursively defs)
         <@> fmap (localTactic assumption . filterPosition name) [0..]
@@ -90,14 +89,7 @@ intros = rule $ \jdg -> do
                $ withNewGoal (CType b) jdg
       modify $ withIntroducedVals $ mappend $ S.fromList vs
       when (isJust top_hole) $ addUnusedTopVals $ S.fromList vs
-      (tr, sg)
-        <- newSubgoal
-          $ bool
-              id
-              (withPositionMapping
-                (extremelyStupid__definingFunction ctx) vs)
-              (isJust top_hole)
-          $ jdg'
+      (tr, sg) <- newSubgoal jdg'
       pure
         . (rose ("intros {" <> intercalate ", " (fmap show vs) <> "}") $ pure tr, )
         . noLoc

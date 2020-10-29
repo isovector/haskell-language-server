@@ -23,6 +23,7 @@ import           Ide.Plugin.Tactic.Types
 import           OccName
 import           SrcLoc
 import           Type
+import Control.Applicative
 
 
 ------------------------------------------------------------------------------
@@ -131,19 +132,36 @@ hasPositionalAncestry jdg defn n name
           Nothing -> Nothing
   | otherwise = Nothing
   where
-    ancestors = toListOf (_Just . traversed . ix n)
-              $ M.lookup defn
-              $ _jPositionMaps jdg
+    ancestors = findPositionVal jdg defn n
+
+
+------------------------------------------------------------------------------
+-- | Lookup the binding that corresponds to the given positional binding of the
+-- name. This will find top-level function arguments, and pattern matched
+-- values.
+--
+-- eg. given
+--
+--    fmap f a = ...
+--
+-- @findPositionVal fmap 1 = Just a@
+findPositionVal :: Judgement' a -> OccName -> Int -> Maybe OccName
+findPositionVal jdg defn pos = listToMaybe $ do
+  (name, hi) <- M.toList $ jHypothesis jdg
+  case hi_provenance hi of
+    TopLevelArgPrv defn' pos'
+      | defn == defn'
+      , pos  == pos' -> pure name
+    PatternMatchPrv pv
+      | pv_scrutinee pv == Just defn
+      , pv_position pv  == pos -> pure name
+    _ -> empty
+
 
 
 jAncestryMap :: Judgement' a -> Map OccName (Set OccName)
 jAncestryMap jdg =
   flip M.map (jPatHypothesis jdg) pv_ancestry
-
-
-withPositionMapping :: OccName -> [OccName] -> Judgement -> Judgement
-withPositionMapping defn names =
-  field @"_jPositionMaps" . at defn <>~ Just [names]
 
 
 ------------------------------------------------------------------------------
@@ -250,7 +268,6 @@ mkFirstJudgement hy ambient top posvals goal = Judgement
   , _jBlacklistDestruct = False
   , _jWhitelistSplit    = True
   , _jDestructed        = mempty
-  , _jPositionMaps      = posvals
   , _jIsTopHole         = top
   , _jGoal              = CType goal
   }
