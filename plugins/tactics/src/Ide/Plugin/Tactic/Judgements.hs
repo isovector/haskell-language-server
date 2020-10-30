@@ -96,43 +96,61 @@ filterPosition :: OccName -> Int -> Judgement -> Judgement
 filterPosition defn pos jdg =
     withHypothesis (M.filterWithKey go) jdg
   where
-    go name _ = isJust $ hasPositionalAncestry jdg defn pos name
+    go name _
+      = isJust
+      $ hasPositionalAncestry (findPositionVal jdg defn pos) jdg name
+
+filterDconPosition :: DataCon -> Int -> Judgement -> Judgement
+filterDconPosition dcon pos jdg =
+    withHypothesis (M.filterWithKey go) jdg
+  where
+    go name _
+      = isJust
+      $ hasPositionalAncestry (findDconPositionVals jdg dcon pos) jdg name
 
 
-filterSameTypeFromOtherPositions :: OccName -> Int -> Judgement -> Judgement
-filterSameTypeFromOtherPositions defn pos jdg =
-  let hy = jHypothesis $ filterPosition defn pos jdg
-      tys = S.fromList $ fmap snd $ M.toList hy
-   in withHypothesis (\hy2 -> M.filter (not . flip S.member tys) hy2 <> hy) jdg
+filterSameTypeFromOtherPositions :: DataCon -> Int -> Judgement -> Judgement
+filterSameTypeFromOtherPositions dcon pos jdg =
+  let hy = jHypothesis jdg
+      matching = jHypothesis $ filterDconPosition dcon pos jdg
+      tys = S.fromList $ fmap (hi_type . snd) $ M.toList matching
+      to_remove = M.filter (flip S.member tys . hi_type) hy
+   in withHypothesis (const $ matching <> (hy M.\\ to_remove))  jdg
 
+
+ancestryForProvenance :: Provenance -> Set OccName
+ancestryForProvenance = \case
+  PatternMatchPrv pv -> pv_ancestry pv
+  TopLevelArgPrv func _ -> S.singleton func
+  _ -> mempty
 
 getAncestry :: Judgement' a -> OccName -> Set OccName
 getAncestry jdg name =
-  case M.lookup name $ jPatHypothesis jdg of
-    Just pv -> pv_ancestry pv
+  case M.lookup name $ jHypothesis jdg of
+    Just hi -> ancestryForProvenance $ hi_provenance hi
     Nothing -> mempty
 
 
 hasPositionalAncestry
-    :: Judgement
-    -> OccName     -- ^ defining fn
-    -> Int         -- ^ position
+    :: Foldable t
+    => t OccName
+    -> Judgement
     -> OccName     -- ^ thing to check ancestry
     -> Maybe Bool  -- ^ Just True if the result is the oldest positional ancestor
                    -- just false if it's a descendent
                    -- otherwise nothing
-hasPositionalAncestry jdg defn n name
+hasPositionalAncestry ancestors jdg name
   | not $ null ancestors
   = case any (== name) ancestors of
       True  -> Just True
       False ->
-        case M.lookup name $ jAncestryMap jdg of
+        case M.lookup name $ traceIdX "ancestry" $ jAncestryMap jdg of
           Just ancestry ->
             bool Nothing (Just False) $ any (flip S.member ancestry) ancestors
           Nothing -> Nothing
   | otherwise = Nothing
-  where
-    ancestors = findPositionVal jdg defn n
+  -- where
+  --   ancestors = findPositionVal jdg defn n
 
 
 ------------------------------------------------------------------------------
@@ -158,10 +176,22 @@ findPositionVal jdg defn pos = listToMaybe $ do
     _ -> empty
 
 
+------------------------------------------------------------------------------
+-- | Like 'findPositionVal', but operates over data constructor matches.
+findDconPositionVals :: Judgement' a -> DataCon -> Int -> [OccName]
+findDconPositionVals jdg dcon pos = do
+  (name, hi) <- M.toList $ jHypothesis jdg
+  case hi_provenance hi of
+    PatternMatchPrv pv
+      | pv_datacon  pv == Uniquely dcon
+      , pv_position pv == pos -> pure name
+    _ -> empty
+
+
 
 jAncestryMap :: Judgement' a -> Map OccName (Set OccName)
-jAncestryMap jdg =
-  flip M.map (jPatHypothesis jdg) pv_ancestry
+jAncestryMap = M.map (ancestryForProvenance . hi_provenance) . jHypothesis
+
 
 
 ------------------------------------------------------------------------------

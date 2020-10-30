@@ -77,6 +77,7 @@ destructMatches f scrut t jdg = do
           names <- mkManyGoodNames hy args
           let hy' = zip names $ coerce args
               j = introducingPat scrut dc hy'
+                --   maybe id (disallowing . pure) scrut
                 $ withNewGoal g jdg
           (tr, sg) <- f dc j
           modify $ withIntroducedVals $ mappend $ S.fromList names
@@ -174,16 +175,16 @@ buildDataCon
     -> RuleM (Trace, LHsExpr GhcPs)
 buildDataCon jdg dc apps = do
   let args = dataConInstOrigArgTys' dc apps
-      dcon_name = nameOccName $ dataConName dc
   (tr, sgs)
       <- fmap unzipTrace
        $ traverse ( \(arg, n) ->
                     newSubgoal
-                  . filterSameTypeFromOtherPositions dcon_name n
+                  . filterSameTypeFromOtherPositions dc n
                   . blacklistingDestruct
                   . flip withNewGoal jdg
                   $ CType arg
-                  ) $ zip args [0..]
+                  )
+       $ zip args [0..]
   pure
     . (rose (show dc) $ pure tr,)
     $ mkCon dc sgs

@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
@@ -173,7 +174,16 @@ data PatVal = PatVal
   , pv_ancestry  :: Set OccName
   , pv_datacon   :: Uniquely DataCon
   , pv_position  :: Int
-  } deriving stock (Eq, Show, Generic, Ord)
+  } deriving stock (Eq, Generic, Ord)
+
+instance Show PatVal where
+  show PatVal{..} = mconcat
+    [ "(from "
+    , show pv_datacon
+    , ":"
+    , show pv_position
+    , ")"
+    ]
 
 
 newtype Uniquely a = Uniquely { getViaUnique :: a }
