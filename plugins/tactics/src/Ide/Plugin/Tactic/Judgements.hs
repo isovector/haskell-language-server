@@ -7,6 +7,7 @@
 
 module Ide.Plugin.Tactic.Judgements where
 
+import           Control.Applicative
 import           Control.Lens hiding (Context)
 import           Data.Bool
 import           Data.Char
@@ -23,7 +24,6 @@ import           Ide.Plugin.Tactic.Types
 import           OccName
 import           SrcLoc
 import           Type
-import Control.Applicative
 
 
 ------------------------------------------------------------------------------
@@ -109,26 +109,31 @@ filterDconPosition dcon pos jdg =
       $ hasPositionalAncestry (findDconPositionVals jdg dcon pos) jdg name
 
 
+
+-- filterSameTypeFromOtherPositions :: OccName -> Int -> Judgement -> Judgement
+-- filterSameTypeFromOtherPositions defn pos jdg =
+--   let hy = jHypothesis $ filterPosition defn pos jdg
+--       tys = S.fromList $ fmap snd $ M.toList hy
+--    in withHypothesis (\hy2 -> M.filter (not . flip S.member tys) hy2 <> hy) jdg
+
 filterSameTypeFromOtherPositions :: DataCon -> Int -> Judgement -> Judgement
 filterSameTypeFromOtherPositions dcon pos jdg =
-  let hy = jHypothesis jdg
-      matching = jHypothesis $ filterDconPosition dcon pos jdg
+  let matching = jHypothesis $ filterDconPosition dcon pos jdg
       tys = S.fromList $ fmap (hi_type . snd) $ M.toList matching
-      to_remove = M.filter (flip S.member tys . hi_type) hy
-   in withHypothesis (const $ matching <> (hy M.\\ to_remove))  jdg
+   in withHypothesis (\hy2 -> M.filter (not . flip S.member tys . hi_type) hy2 <> matching)  jdg
 
 
-ancestryForProvenance :: Provenance -> Set OccName
+ancestryForProvenance :: Provenance -> Maybe (Set OccName)
 ancestryForProvenance = \case
-  PatternMatchPrv pv -> pv_ancestry pv
-  TopLevelArgPrv func _ -> S.singleton func
-  _ -> mempty
+  PatternMatchPrv pv -> Just $ pv_ancestry pv
+  -- TopLevelArgPrv func _ -> S.singleton func
+  _ -> Nothing
 
-getAncestry :: Judgement' a -> OccName -> Set OccName
+getAncestry :: Judgement' a -> OccName -> Maybe (Set OccName)
 getAncestry jdg name =
   case M.lookup name $ jHypothesis jdg of
     Just hi -> ancestryForProvenance $ hi_provenance hi
-    Nothing -> mempty
+    Nothing -> Nothing
 
 
 hasPositionalAncestry
@@ -149,8 +154,6 @@ hasPositionalAncestry ancestors jdg name
             bool Nothing (Just False) $ any (flip S.member ancestry) ancestors
           Nothing -> Nothing
   | otherwise = Nothing
-  -- where
-  --   ancestors = findPositionVal jdg defn n
 
 
 ------------------------------------------------------------------------------
@@ -190,7 +193,7 @@ findDconPositionVals jdg dcon pos = do
 
 
 jAncestryMap :: Judgement' a -> Map OccName (Set OccName)
-jAncestryMap = M.map (ancestryForProvenance . hi_provenance) . jHypothesis
+jAncestryMap = M.mapMaybe (ancestryForProvenance . hi_provenance) . jHypothesis
 
 
 
@@ -230,7 +233,7 @@ introducingPat scrutinee dc ns jdg = jdg
               scrutinee
               (maybe
                   mempty
-                  (\scrut -> S.singleton scrut <> getAncestry jdg scrut)
+                  (\scrut -> S.singleton scrut <> fromMaybe mempty (getAncestry jdg scrut))
                   scrutinee)
               (Uniquely dc)
               pos)
