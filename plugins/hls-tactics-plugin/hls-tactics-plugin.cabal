@@ -34,7 +34,7 @@ library
     Copilot.KnownStrategies
     Copilot.KnownStrategies.QuickCheck
     Copilot.LanguageServer
-    Copilot.LanguageServer.TacticProviders
+    Copilot.LanguageServer.CommandProviders
     Copilot.Machinery
     Copilot.Naming
     Copilot.Plugin

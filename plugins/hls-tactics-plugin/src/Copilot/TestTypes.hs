@@ -10,7 +10,7 @@ import Copilot.FeatureSet
 -- | The list of tactics exposed to the outside world. These are attached to
 -- actual tactics via 'commandTactic' and are contextually provided to the
 -- editor via 'commandProvider'.
-data TacticCommand
+data CopilotCommand
   = Auto
   | Intros
   | Destruct
@@ -20,7 +20,7 @@ data TacticCommand
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | Generate a title for the command.
-copilotTitle :: TacticCommand -> T.Text -> T.Text
+copilotTitle :: CopilotCommand -> T.Text -> T.Text
 copilotTitle Auto _ = "Attempt to fill hole"
 copilotTitle Intros _ = "Introduce lambda"
 copilotTitle Destruct var = "Case split on " <> var

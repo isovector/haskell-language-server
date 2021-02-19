@@ -39,7 +39,7 @@ import           Copilot.FeatureSet
 import           Copilot.GHC
 import           Copilot.Judgements
 import           Copilot.Range
-import           Copilot.TestTypes (cfg_feature_set, TacticCommand)
+import           Copilot.TestTypes (cfg_feature_set, CopilotCommand)
 import           Copilot.Types
 import           Ide.PluginUtils (getPluginConfig)
 import           Language.LSP.Server (MonadLsp)
@@ -56,7 +56,7 @@ tacticDesc name = "fill the hole using the " <> name <> " tactic"
 
 ------------------------------------------------------------------------------
 -- | The name of the command for the LS.
-tcCommandName :: TacticCommand -> T.Text
+tcCommandName :: CopilotCommand -> T.Text
 tcCommandName = T.pack . show
 
 

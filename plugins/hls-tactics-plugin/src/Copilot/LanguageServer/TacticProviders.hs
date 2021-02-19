@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE ViewPatterns       #-}
 
-module Copilot.LanguageServer.TacticProviders
+module Copilot.LanguageServer.CommandProviders
   ( commandProvider
   , commandTactic
   , tcCommandId
@@ -40,7 +40,7 @@ import           Refinery.Tactic (goal)
 
 ------------------------------------------------------------------------------
 -- | A mapping from tactic commands to actual tactics for refinery.
-commandTactic :: TacticCommand -> OccName -> TacticsM ()
+commandTactic :: CopilotCommand -> OccName -> TacticsM ()
 commandTactic Auto         = const auto
 commandTactic Intros       = const intros
 commandTactic Destruct     = useNameFromHypothesis destruct
@@ -52,7 +52,7 @@ commandTactic HomomorphismLambdaCase = const homoLambdaCase
 ------------------------------------------------------------------------------
 -- | Mapping from tactic commands to their contextual providers. See 'provide',
 -- 'filterGoalType' and 'filterBindingType' for the nitty gritty.
-commandProvider :: TacticCommand -> TacticProvider
+commandProvider :: CopilotCommand -> CommandProvider
 commandProvider Auto  = provide Auto ""
 commandProvider Intros =
   filterGoalType isFunction $
@@ -74,9 +74,9 @@ commandProvider HomomorphismLambdaCase =
 
 
 ------------------------------------------------------------------------------
--- | A 'TacticProvider' is a way of giving context-sensitive actions to the LS
+-- | A 'CommandProvider' is a way of giving context-sensitive actions to the LS
 -- UI.
-type TacticProvider
+type CommandProvider
      = DynFlags
     -> FeatureSet
     -> PluginId
@@ -96,18 +96,18 @@ data TacticParams = TacticParams
 
 
 ------------------------------------------------------------------------------
--- | Restrict a 'TacticProvider', making sure it appears only when the given
+-- | Restrict a 'CommandProvider', making sure it appears only when the given
 -- 'Feature' is in the feature set.
-requireFeature :: Feature -> TacticProvider -> TacticProvider
+requireFeature :: Feature -> CommandProvider -> CommandProvider
 requireFeature f tp dflags fs plId uri range jdg = do
   guard $ hasFeature f fs
   tp dflags fs plId uri range jdg
 
 
 ------------------------------------------------------------------------------
--- | Restrict a 'TacticProvider', making sure it appears only when the given
+-- | Restrict a 'CommandProvider', making sure it appears only when the given
 -- predicate holds for the goal.
-requireExtension :: Extension -> TacticProvider -> TacticProvider
+requireExtension :: Extension -> CommandProvider -> CommandProvider
 requireExtension ext tp dflags fs plId uri range jdg =
   case xopt ext dflags of
     True  -> tp dflags fs plId uri range jdg
@@ -115,9 +115,9 @@ requireExtension ext tp dflags fs plId uri range jdg =
 
 
 ------------------------------------------------------------------------------
--- | Restrict a 'TacticProvider', making sure it appears only when the given
+-- | Restrict a 'CommandProvider', making sure it appears only when the given
 -- predicate holds for the goal.
-filterGoalType :: (Type -> Bool) -> TacticProvider -> TacticProvider
+filterGoalType :: (Type -> Bool) -> CommandProvider -> CommandProvider
 filterGoalType p tp dflags fs plId uri range jdg =
   case p $ unCType $ jGoal jdg of
     True  -> tp dflags fs plId uri range jdg
@@ -125,12 +125,12 @@ filterGoalType p tp dflags fs plId uri range jdg =
 
 
 ------------------------------------------------------------------------------
--- | Multiply a 'TacticProvider' for each binding, making sure it appears only
+-- | Multiply a 'CommandProvider' for each binding, making sure it appears only
 -- when the given predicate holds over the goal and binding types.
 filterBindingType
     :: (Type -> Type -> Bool)  -- ^ Goal and then binding types.
-    -> (OccName -> Type -> TacticProvider)
-    -> TacticProvider
+    -> (OccName -> Type -> CommandProvider)
+    -> CommandProvider
 filterBindingType p tp dflags fs plId uri range jdg =
   let hy = jHypothesis jdg
       g  = jGoal jdg
@@ -156,7 +156,7 @@ useNameFromHypothesis f name = do
 ------------------------------------------------------------------------------
 -- | Terminal constructor for providing context-sensitive tactics. Tactics
 -- given by 'provide' are always available.
-provide :: TacticCommand -> T.Text -> TacticProvider
+provide :: CopilotCommand -> T.Text -> CommandProvider
 provide tc name _ _ plId uri range _ = do
   let title = copilotTitle tc name
       params = TacticParams { tp_file = uri , tp_range = range , tp_var_name = name }
@@ -170,7 +170,7 @@ provide tc name _ _ plId uri range _ = do
 
 ------------------------------------------------------------------------------
 -- | Construct a 'CommandId'
-tcCommandId :: TacticCommand -> CommandId
+tcCommandId :: CopilotCommand -> CommandId
 tcCommandId c = coerce $ T.pack $ "copilot" <> show c <> "Command"
 
 

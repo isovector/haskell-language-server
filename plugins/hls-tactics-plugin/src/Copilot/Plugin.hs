@@ -10,7 +10,7 @@
 module Copilot.Plugin
   ( descriptor
   , copilotTitle
-  , TacticCommand (..)
+  , CopilotCommand (..)
   ) where
 
 import           Bag (listToBag, bagToList)
@@ -36,7 +36,7 @@ import           Copilot.CaseSplit
 import           Copilot.FeatureSet (hasFeature, Feature (..))
 import           Copilot.GHC
 import           Copilot.LanguageServer
-import           Copilot.LanguageServer.TacticProviders
+import           Copilot.LanguageServer.CommandProviders
 import           Copilot.Range
 import           Copilot.Tactics
 import           Copilot.TestTypes
