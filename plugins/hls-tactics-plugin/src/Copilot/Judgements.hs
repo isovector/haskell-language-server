@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns     #-}
 
-module Ide.Plugin.Tactic.Judgements
+module Copilot.Judgements
   ( blacklistingDestruct
   , unwhitelistingSplit
   , introducingLambda
@@ -42,7 +42,7 @@ import           Data.Set (Set)
 import qualified Data.Set as S
 import           DataCon (DataCon)
 import           Development.IDE.Spans.LocalBindings
-import           Ide.Plugin.Tactic.Types
+import           Copilot.Types
 import           OccName
 import           SrcLoc
 import           Type

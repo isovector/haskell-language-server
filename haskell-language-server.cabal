@@ -128,8 +128,8 @@ flag retrie
   default:     True
   manual:      False
 
-flag tactic
-  description: Enable tactic plugin
+flag copilot
+  description: Enable Haskell Copilot plugin
   default:     True
   manual:      False
 
@@ -210,10 +210,10 @@ common retrie
     build-depends: hls-retrie-plugin
     cpp-options: -Dretrie
 
-common tactic
-  if flag(tactic) || flag(all-plugins)
+common copilot
+  if flag(copilot) || flag(all-plugins)
     build-depends: hls-tactics-plugin
-    cpp-options: -Dtactic
+    cpp-options: -Dcopilot
 
 common hlint
   if flag(hlint) || flag(all-plugins)
@@ -285,7 +285,7 @@ executable haskell-language-server
                     , eval
                     , importLens
                     , retrie
-                    , tactic
+                    , copilot
                     , hlint
                     , moduleName
                     , pragmas
@@ -462,8 +462,8 @@ test-suite func-test
     Splice
     HaddockComments
     Ide.Plugin.Splice.Types
-    Ide.Plugin.Tactic.FeatureSet
-    Ide.Plugin.Tactic.TestTypes
+    Copilot.FeatureSet
+    Copilot.TestTypes
     Ide.Plugin.Eval.Types
 
   default-extensions: OverloadedStrings

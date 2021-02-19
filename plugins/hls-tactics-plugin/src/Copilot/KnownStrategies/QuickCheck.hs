@@ -1,6 +1,6 @@
 {-# LANGUAGE ViewPatterns #-}
 
-module Ide.Plugin.Tactic.KnownStrategies.QuickCheck where
+module Copilot.KnownStrategies.QuickCheck where
 
 import Control.Monad.Except (MonadError(throwError))
 import Data.Bool (bool)
@@ -14,10 +14,10 @@ import GHC.SourceGen.Binds ( match, valBind )
 import GHC.SourceGen.Expr ( case', lambda, let' )
 import GHC.SourceGen.Overloaded ( App((@@)), HasList(list) )
 import GHC.SourceGen.Pat ( conP )
-import Ide.Plugin.Tactic.CodeGen
-import Ide.Plugin.Tactic.Judgements (jGoal)
-import Ide.Plugin.Tactic.Machinery (tracePrim)
-import Ide.Plugin.Tactic.Types
+import Copilot.CodeGen
+import Copilot.Judgements (jGoal)
+import Copilot.Machinery (tracePrim)
+import Copilot.Types
 import OccName (occNameString,  mkVarOcc, HasOccName(occName) )
 import Refinery.Tactic (goal,  rule )
 import TyCon (tyConName,  TyCon, tyConDataCons )

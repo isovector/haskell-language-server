@@ -2,7 +2,7 @@
 {-# LANGUAGE CPP              #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Ide.Plugin.Tactic.Debug
+module Copilot.Debug
   ( unsafeRender
   , unsafeRender'
   , traceM

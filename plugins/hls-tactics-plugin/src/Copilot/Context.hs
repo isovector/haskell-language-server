@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase       #-}
 
-module Ide.Plugin.Tactic.Context where
+module Copilot.Context where
 
 import           Bag
 import           Control.Arrow
@@ -11,14 +11,14 @@ import           Data.Maybe (mapMaybe)
 import           Data.Set (Set)
 import qualified Data.Set as S
 import           Development.IDE.GHC.Compat
-import           Ide.Plugin.Tactic.GHC (tacticsThetaTy)
-import           Ide.Plugin.Tactic.Machinery (methodHypothesis)
-import           Ide.Plugin.Tactic.Types
+import           Copilot.GHC (tacticsThetaTy)
+import           Copilot.Machinery (methodHypothesis)
+import           Copilot.Types
 import           OccName
 import           TcRnTypes
 import           TcType (substTy, tcSplitSigmaTy)
 import           Unify (tcUnifyTy)
-import Ide.Plugin.Tactic.FeatureSet (FeatureSet)
+import Copilot.FeatureSet (FeatureSet)
 
 
 mkContext :: FeatureSet -> [(OccName, CType)] -> TcGblEnv -> Context

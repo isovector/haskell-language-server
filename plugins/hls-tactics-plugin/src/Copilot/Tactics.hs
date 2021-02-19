@@ -4,8 +4,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ViewPatterns          #-}
 
-module Ide.Plugin.Tactic.Tactics
-  ( module Ide.Plugin.Tactic.Tactics
+module Copilot.Tactics
+  ( module Copilot.Tactics
   , runTactic
   ) where
 
@@ -26,13 +26,13 @@ import           Development.IDE.GHC.Compat
 import           GHC.Exts
 import           GHC.SourceGen.Expr
 import           GHC.SourceGen.Overloaded
-import           Ide.Plugin.Tactic.CodeGen
-import           Ide.Plugin.Tactic.Context
-import           Ide.Plugin.Tactic.GHC
-import           Ide.Plugin.Tactic.Judgements
-import           Ide.Plugin.Tactic.Machinery
-import           Ide.Plugin.Tactic.Naming
-import           Ide.Plugin.Tactic.Types
+import           Copilot.CodeGen
+import           Copilot.Context
+import           Copilot.GHC
+import           Copilot.Judgements
+import           Copilot.Machinery
+import           Copilot.Naming
+import           Copilot.Types
 import           Name (occNameString)
 import           Refinery.Tactic
 import           Refinery.Tactic.Internal

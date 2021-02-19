@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE ViewPatterns        #-}
 
-module Ide.Plugin.Tactic.GHC where
+module Copilot.GHC where
 
 import           Control.Monad.State
 import           Data.Function (on)
@@ -21,7 +21,7 @@ import           DataCon
 import           Development.IDE.GHC.Compat
 import           GHC.SourceGen (match, case', lambda)
 import           Generics.SYB (mkQ, everything, listify, Data, mkT, everywhere)
-import           Ide.Plugin.Tactic.Types
+import           Copilot.Types
 import           OccName
 import           TcType
 import           TyCoRep

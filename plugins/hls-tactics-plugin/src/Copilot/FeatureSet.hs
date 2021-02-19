@@ -2,7 +2,7 @@
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE ViewPatterns      #-}
 
-module Ide.Plugin.Tactic.FeatureSet
+module Copilot.FeatureSet
   ( Feature (..)
   , FeatureSet
   , hasFeature

@@ -1,12 +1,12 @@
-module Ide.Plugin.Tactic.Auto where
+module Copilot.Auto where
 
 import Control.Monad.State (gets)
-import Ide.Plugin.Tactic.Context
-import Ide.Plugin.Tactic.Judgements
-import Ide.Plugin.Tactic.KnownStrategies
-import Ide.Plugin.Tactic.Machinery (tracing)
-import Ide.Plugin.Tactic.Tactics
-import Ide.Plugin.Tactic.Types
+import Copilot.Context
+import Copilot.Judgements
+import Copilot.KnownStrategies
+import Copilot.Machinery (tracing)
+import Copilot.Tactics
+import Copilot.Types
 import Refinery.Tactic
 
 

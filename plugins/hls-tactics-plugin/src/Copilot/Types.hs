@@ -9,9 +9,9 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
-module Ide.Plugin.Tactic.Types
-  ( module Ide.Plugin.Tactic.Types
-  , module Ide.Plugin.Tactic.Debug
+module Copilot.Types
+  ( module Copilot.Types
+  , module Copilot.Debug
   , OccName
   , Name
   , Type
@@ -32,8 +32,8 @@ import Development.IDE.GHC.Compat hiding (Node)
 import Development.IDE.GHC.Orphans ()
 import Development.IDE.Types.Location
 import GHC.Generics
-import Ide.Plugin.Tactic.Debug
-import Ide.Plugin.Tactic.FeatureSet (FeatureSet)
+import Copilot.Debug
+import Copilot.FeatureSet (FeatureSet)
 import OccName
 import Refinery.Tactic
 import System.IO.Unsafe (unsafePerformIO)
@@ -371,7 +371,7 @@ rose a rs = Rose $ Node a $ coerce rs
 
 
 ------------------------------------------------------------------------------
--- | The results of 'Ide.Plugin.Tactic.Machinery.runTactic'
+-- | The results of 'Copilot.Machinery.runTactic'
 data RunTacticResults = RunTacticResults
   { rtr_trace       :: Trace
   , rtr_extract     :: LHsExpr GhcPs

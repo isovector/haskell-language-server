@@ -33,8 +33,8 @@ import           Ide.Plugin.ExplicitImports as ExplicitImports
 import           Ide.Plugin.Retrie         as Retrie
 #endif
 
-#if tactic
-import           Ide.Plugin.Tactic         as Tactic
+#if copilot
+import           Copilot.Plugin            as Copilot
 #endif
 
 #if hlint
@@ -99,8 +99,8 @@ idePlugins includeExamples = pluginDescToIdePlugins allPlugins
 #if fourmolu
       Fourmolu.descriptor "fourmolu" :
 #endif
-#if tactic
-      Tactic.descriptor "tactic" :
+#if copilot
+      Copilot.descriptor "copilot" :
 #endif
 #if ormolu
       Ormolu.descriptor   "ormolu" :

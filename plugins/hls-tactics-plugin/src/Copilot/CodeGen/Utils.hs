@@ -1,6 +1,6 @@
 {-# LANGUAGE ViewPatterns #-}
 
-module Ide.Plugin.Tactic.CodeGen.Utils where
+module Copilot.CodeGen.Utils where
 
 import Data.List
 import DataCon
@@ -8,7 +8,7 @@ import Development.IDE.GHC.Compat
 import GHC.Exts
 import GHC.SourceGen (recordConE, RdrNameStr)
 import GHC.SourceGen.Overloaded
-import Ide.Plugin.Tactic.GHC (getRecordFields)
+import Copilot.GHC (getRecordFields)
 import Name
 
 

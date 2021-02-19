@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns        #-}
 
-module Ide.Plugin.Tactic.Simplify
+module Copilot.Simplify
   ( simplify
   ) where
 
@@ -14,8 +14,8 @@ import Data.Monoid (Endo (..))
 import Development.IDE.GHC.Compat
 import GHC.SourceGen (var)
 import GHC.SourceGen.Expr (lambda)
-import Ide.Plugin.Tactic.CodeGen.Utils
-import Ide.Plugin.Tactic.GHC (fromPatCompatPs, containsHsVar)
+import Copilot.CodeGen.Utils
+import Copilot.GHC (fromPatCompatPs, containsHsVar)
 
 
 ------------------------------------------------------------------------------

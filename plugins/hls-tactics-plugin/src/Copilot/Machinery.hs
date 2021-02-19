@@ -9,8 +9,8 @@
 {-# LANGUAGE ViewPatterns          #-}
 {-# OPTIONS_GHC -fno-warn-orphans  #-}
 
-module Ide.Plugin.Tactic.Machinery
-  ( module Ide.Plugin.Tactic.Machinery
+module Copilot.Machinery
+  ( module Copilot.Machinery
   ) where
 
 import           Class (Class(classTyVars))
@@ -32,9 +32,9 @@ import           Data.Ord (comparing, Down(..))
 import           Data.Set (Set)
 import qualified Data.Set as S
 import           Development.IDE.GHC.Compat
-import           Ide.Plugin.Tactic.Judgements
-import           Ide.Plugin.Tactic.Simplify (simplify)
-import           Ide.Plugin.Tactic.Types
+import           Copilot.Judgements
+import           Copilot.Simplify (simplify)
+import           Copilot.Types
 import           OccName (HasOccName(occName))
 import           Refinery.ProofState
 import           Refinery.Tactic

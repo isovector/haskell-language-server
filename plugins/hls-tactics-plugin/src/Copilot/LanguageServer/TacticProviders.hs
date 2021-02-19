@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE ViewPatterns       #-}
 
-module Ide.Plugin.Tactic.LanguageServer.TacticProviders
+module Copilot.LanguageServer.TacticProviders
   ( commandProvider
   , commandTactic
   , tcCommandId
@@ -23,13 +23,13 @@ import           Data.Traversable
 import           Development.IDE.GHC.Compat
 import           GHC.Generics
 import           GHC.LanguageExtensions.Type (Extension (LambdaCase))
-import           Ide.Plugin.Tactic.Auto
-import           Ide.Plugin.Tactic.FeatureSet
-import           Ide.Plugin.Tactic.GHC
-import           Ide.Plugin.Tactic.Judgements
-import           Ide.Plugin.Tactic.Tactics
-import           Ide.Plugin.Tactic.TestTypes
-import           Ide.Plugin.Tactic.Types
+import           Copilot.Auto
+import           Copilot.FeatureSet
+import           Copilot.GHC
+import           Copilot.Judgements
+import           Copilot.Tactics
+import           Copilot.TestTypes
+import           Copilot.Types
 import           Ide.PluginUtils
 import           Ide.Types
 import           Language.LSP.Types
@@ -158,7 +158,7 @@ useNameFromHypothesis f name = do
 -- given by 'provide' are always available.
 provide :: TacticCommand -> T.Text -> TacticProvider
 provide tc name _ _ plId uri range _ = do
-  let title = tacticTitle tc name
+  let title = copilotTitle tc name
       params = TacticParams { tp_file = uri , tp_range = range , tp_var_name = name }
       cmd = mkLspCommand plId (tcCommandId tc) title (Just [toJSON params])
   pure
@@ -171,7 +171,7 @@ provide tc name _ _ plId uri range _ = do
 ------------------------------------------------------------------------------
 -- | Construct a 'CommandId'
 tcCommandId :: TacticCommand -> CommandId
-tcCommandId c = coerce $ T.pack $ "tactics" <> show c <> "Command"
+tcCommandId c = coerce $ T.pack $ "copilot" <> show c <> "Command"
 
 
 

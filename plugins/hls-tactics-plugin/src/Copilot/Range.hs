@@ -1,4 +1,4 @@
-module Ide.Plugin.Tactic.Range where
+module Copilot.Range where
 
 import qualified FastString as FS
 import           Development.IDE.Types.Location

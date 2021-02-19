@@ -7,9 +7,9 @@
 {-# LANGUAGE TypeApplications    #-}
 
 -- | A plugin that uses tactics to synthesize code
-module Ide.Plugin.Tactic
+module Copilot.Plugin
   ( descriptor
-  , tacticTitle
+  , copilotTitle
   , TacticCommand (..)
   ) where
 
@@ -32,15 +32,15 @@ import           Development.IDE.Core.Shake (IdeState (..))
 import           Development.IDE.GHC.Compat
 import           Development.IDE.GHC.ExactPrint
 import           Development.Shake.Classes
-import           Ide.Plugin.Tactic.CaseSplit
-import           Ide.Plugin.Tactic.FeatureSet (hasFeature, Feature (..))
-import           Ide.Plugin.Tactic.GHC
-import           Ide.Plugin.Tactic.LanguageServer
-import           Ide.Plugin.Tactic.LanguageServer.TacticProviders
-import           Ide.Plugin.Tactic.Range
-import           Ide.Plugin.Tactic.Tactics
-import           Ide.Plugin.Tactic.TestTypes
-import           Ide.Plugin.Tactic.Types
+import           Copilot.CaseSplit
+import           Copilot.FeatureSet (hasFeature, Feature (..))
+import           Copilot.GHC
+import           Copilot.LanguageServer
+import           Copilot.LanguageServer.TacticProviders
+import           Copilot.Range
+import           Copilot.Tactics
+import           Copilot.TestTypes
+import           Copilot.Types
 import           Ide.Types
 import           Language.LSP.Server
 import           Language.LSP.Types
@@ -92,7 +92,7 @@ tacticCmd tac state (TacticParams uri range var_name)
       res <- liftIO $ fromMaybeT (Right Nothing) $ do
         (range', jdg, ctx, dflags) <- judgementForHole state nfp range features
         let span = rangeToRealSrcSpan (fromNormalizedFilePath nfp) range'
-        pm <- MaybeT $ useAnnotatedSource "tacticsCmd" state nfp
+        pm <- MaybeT $ useAnnotatedSource "copilot" state nfp
 
         timingOut 2e8 $ join $
           bimap (mkErr InvalidRequest . T.pack . show)

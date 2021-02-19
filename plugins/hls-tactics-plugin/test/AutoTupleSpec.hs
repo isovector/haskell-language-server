@@ -4,11 +4,11 @@ module AutoTupleSpec where
 
 import           Data.Either (isRight)
 import qualified Data.Map as M
-import           Ide.Plugin.Tactic.Debug
-import           Ide.Plugin.Tactic.Judgements (mkFirstJudgement)
-import           Ide.Plugin.Tactic.Machinery
-import           Ide.Plugin.Tactic.Tactics (auto')
-import           Ide.Plugin.Tactic.Types
+import           Copilot.Debug
+import           Copilot.Judgements (mkFirstJudgement)
+import           Copilot.Machinery
+import           Copilot.Tactics (auto')
+import           Copilot.Types
 import           OccName (mkVarOcc)
 import           Test.Hspec
 import           Test.QuickCheck

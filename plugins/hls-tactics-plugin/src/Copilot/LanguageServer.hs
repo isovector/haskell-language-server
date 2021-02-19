@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Ide.Plugin.Tactic.LanguageServer where
+module Copilot.LanguageServer where
 
 import           Control.Arrow
 import           Control.Monad
@@ -34,13 +34,13 @@ import           Development.Shake.Classes
 import qualified FastString
 import           Ide.Plugin.Config (PluginConfig(plcConfig))
 import qualified Ide.Plugin.Config as Plugin
-import           Ide.Plugin.Tactic.Context
-import           Ide.Plugin.Tactic.FeatureSet
-import           Ide.Plugin.Tactic.GHC
-import           Ide.Plugin.Tactic.Judgements
-import           Ide.Plugin.Tactic.Range
-import           Ide.Plugin.Tactic.TestTypes (cfg_feature_set, TacticCommand)
-import           Ide.Plugin.Tactic.Types
+import           Copilot.Context
+import           Copilot.FeatureSet
+import           Copilot.GHC
+import           Copilot.Judgements
+import           Copilot.Range
+import           Copilot.TestTypes (cfg_feature_set, TacticCommand)
+import           Copilot.Types
 import           Ide.PluginUtils (getPluginConfig)
 import           Language.LSP.Server (MonadLsp)
 import           Language.LSP.Types
@@ -61,7 +61,7 @@ tcCommandName = T.pack . show
 
 
 runIde :: IdeState -> Action a -> IO a
-runIde state = runAction "tactic" state
+runIde state = runAction "copilot" state
 
 
 runStaleIde
@@ -81,7 +81,7 @@ runStaleIde state nfp a = MaybeT $ runIde state $ useWithStale a nfp
 -- | Get the current feature set from the plugin config.
 getFeatureSet :: MonadLsp Plugin.Config m => m FeatureSet
 getFeatureSet = do
-  pcfg <- getPluginConfig "tactics"
+  pcfg <- getPluginConfig "copilot"
   pure $ case fromJSON $ Object $ plcConfig pcfg of
     Success cfg -> cfg_feature_set cfg
     Error _     -> defaultFeatures

@@ -14,6 +14,8 @@ import           Control.Applicative.Combinators ( skipManyTill )
 import           Control.Lens hiding ((<.>))
 import           Control.Monad (unless)
 import           Control.Monad.IO.Class
+import           Copilot.FeatureSet (FeatureSet, allFeatures)
+import           Copilot.TestTypes
 import           Data.Aeson
 import           Data.Default (Default(def))
 import           Data.Either (isLeft)
@@ -24,8 +26,6 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Ide.Plugin.Config as Plugin
-import           Ide.Plugin.Tactic.FeatureSet (FeatureSet, allFeatures)
-import           Ide.Plugin.Tactic.TestTypes
 import           Language.LSP.Test
 import           Language.LSP.Types
 import           Language.LSP.Types.Lens hiding (id, capabilities, message, executeCommand, applyEdit, rename)
@@ -58,7 +58,7 @@ codeActionTitle (InR(CodeAction title _ _ _ _ _ _)) = Just title
 
 tests :: TestTree
 tests = testGroup
-  "tactic"
+  "copilot"
   [ mkTest
       "Produces intros code action"
       "T1.hs" 2 14
@@ -132,7 +132,7 @@ tests = testGroup
 
 
 ------------------------------------------------------------------------------
--- | Make a tactic unit test.
+-- | Make a copilot unit test.
 mkTest
     :: Foldable t
     => String  -- ^ The test name
@@ -146,13 +146,13 @@ mkTest
     -> TestTree
 mkTest name fp line col ts =
   testCase name $ do
-  runSession hlsCommand fullCaps tacticPath $ do
+  runSession hlsCommand fullCaps copilotPath $ do
     doc <- openDoc fp "haskell"
     _ <- waitForDiagnostics
     actions <- getCodeActions doc $ pointRange line col
     let titles = mapMaybe codeActionTitle actions
     for_ ts $ \(f, tc, var) -> do
-      let title = tacticTitle tc var
+      let title = copilotTitle tc var
       liftIO $
         f (elem title titles)
           @? ("Expected a code action with title " <> T.unpack title)
@@ -165,7 +165,7 @@ setFeatureSet features = do
       def_config = def :: Plugin.Config
       config =
         def_config
-          { Plugin.plugins = M.fromList [("tactics",
+          { Plugin.plugins = M.fromList [("copilot",
               def { Plugin.plcConfig = unObject $ toJSON $
                 emptyConfig { cfg_feature_set = features }}
           )] <> Plugin.plugins def_config }
@@ -180,17 +180,17 @@ goldenTest = goldenTest' allFeatures
 goldenTest' :: FeatureSet -> FilePath -> Int -> Int -> TacticCommand -> Text -> TestTree
 goldenTest' features input line col tc occ =
   testCase (input <> " (golden)") $ do
-    runSession hlsCommand fullCaps tacticPath $ do
+    runSession hlsCommand fullCaps copilotPath $ do
       setFeatureSet features
       doc <- openDoc input "haskell"
       _ <- waitForDiagnostics
       actions <- getCodeActions doc $ pointRange line col
       Just (InR CodeAction {_command = Just c})
-        <- pure $ find ((== Just (tacticTitle tc occ)) . codeActionTitle) actions
+        <- pure $ find ((== Just (copilotTitle tc occ)) . codeActionTitle) actions
       executeCommand c
       _resp <- skipManyTill anyMessage (message SWorkspaceApplyEdit)
       edited <- documentContents doc
-      let expected_name = tacticPath </> input <.> "expected"
+      let expected_name = copilotPath </> input <.> "expected"
       -- Write golden tests if they don't already exist
       liftIO $ (doesFileExist expected_name >>=) $ flip unless $ do
         T.writeFile expected_name edited
@@ -201,19 +201,19 @@ goldenTest' features input line col tc occ =
 expectFail :: FilePath -> Int -> Int -> TacticCommand -> Text -> TestTree
 expectFail input line col tc occ =
   testCase (input <> " (golden)") $ do
-    runSession hlsCommand fullCaps tacticPath $ do
+    runSession hlsCommand fullCaps copilotPath $ do
       doc <- openDoc input "haskell"
       _ <- waitForDiagnostics
       actions <- getCodeActions doc $ pointRange line col
       Just (InR CodeAction {_command = Just c})
-        <- pure $ find ((== Just (tacticTitle tc occ)) . codeActionTitle) actions
+        <- pure $ find ((== Just (copilotTitle tc occ)) . codeActionTitle) actions
       resp <- executeCommandWithResp c
       liftIO $ unless (isLeft $ _result resp) $
         assertFailure "didn't fail, but expected one"
 
 
-tacticPath :: FilePath
-tacticPath = "test/testdata/tactic"
+copilotPath :: FilePath
+copilotPath = "test/testdata/tactic"
 
 
 executeCommandWithResp :: Command -> Session (ResponseMessage WorkspaceExecuteCommand)

@@ -1,6 +1,6 @@
 {-# LANGUAGE ViewPatterns #-}
 
-module Ide.Plugin.Tactic.Naming where
+module Copilot.Naming where
 
 import           Control.Monad.State.Strict
 import           Data.Bool (bool)

@@ -1,15 +1,15 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Ide.Plugin.Tactic.KnownStrategies where
+module Copilot.KnownStrategies where
 
 import Control.Monad.Error.Class
-import Ide.Plugin.Tactic.Context (getCurrentDefinitions)
-import Ide.Plugin.Tactic.Tactics
-import Ide.Plugin.Tactic.Types
+import Copilot.Context (getCurrentDefinitions)
+import Copilot.Tactics
+import Copilot.Types
 import OccName (mkVarOcc)
 import Refinery.Tactic
-import Ide.Plugin.Tactic.Machinery (tracing)
-import Ide.Plugin.Tactic.KnownStrategies.QuickCheck (deriveArbitrary)
+import Copilot.Machinery (tracing)
+import Copilot.KnownStrategies.QuickCheck (deriveArbitrary)
 
 
 knownStrategies :: TacticsM ()
