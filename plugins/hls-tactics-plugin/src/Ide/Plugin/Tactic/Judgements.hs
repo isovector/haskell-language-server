@@ -4,6 +4,7 @@
 module Ide.Plugin.Tactic.Judgements
   ( blacklistingDestruct
   , unwhitelistingSplit
+  , mergeHypotheses
   , introducingLambda
   , introducingRecursively
   , introducingPat
@@ -100,6 +101,10 @@ introducing
 introducing f ns =
   field @"_jHypothesis" <>~ (Hypothesis $ zip [0..] ns <&>
     \(pos, (name, ty)) -> HyInfo name (f pos) ty)
+
+
+mergeHypotheses :: Hypothesis a -> Judgement' a -> Judgement' a
+mergeHypotheses hy = field @"_jHypothesis" <>~ hy
 
 
 ------------------------------------------------------------------------------

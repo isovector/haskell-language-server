@@ -8,10 +8,12 @@ module Ide.Plugin.Tactic.LanguageServer where
 
 import           Control.Arrow
 import           Control.Monad
+import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe
 import           Data.Aeson (Value(Object), fromJSON)
 import           Data.Aeson.Types (Result(Success, Error))
 import           Data.Coerce
+import           Data.Foldable (Foldable(toList))
 import           Data.Functor ((<&>))
 import           Data.Generics.Aliases (mkQ)
 import           Data.Generics.Schemes (everything)
@@ -22,6 +24,8 @@ import           Data.Monoid
 import qualified Data.Set as S
 import qualified Data.Text as T
 import           Data.Traversable
+import           Development.IDE (HscEnvEq(hscEnv))
+import           Development.IDE.Core.Compile (lookupName)
 import           Development.IDE.Core.PositionMapping
 import           Development.IDE.Core.RuleTypes
 import           Development.IDE.Core.Service (runAction)
@@ -32,6 +36,7 @@ import           Development.IDE.Spans.LocalBindings (Bindings, getDefiningBindi
 import           Development.Shake (RuleResult, Action)
 import           Development.Shake.Classes
 import qualified FastString
+import           GhcPlugins (varType, gre_name, ContainsModule(extractModule))
 import           Ide.Plugin.Config (PluginConfig(plcConfig))
 import qualified Ide.Plugin.Config as Plugin
 import           Ide.Plugin.Tactic.Context
@@ -47,7 +52,7 @@ import           Language.LSP.Types
 import           OccName
 import           Prelude hiding (span)
 import           SrcLoc (containsSpan)
-import           TcRnTypes (tcg_binds)
+import           TcRnTypes (tcg_rdr_env, tcg_binds)
 
 
 tacticDesc :: T.Text -> T.Text
@@ -117,8 +122,40 @@ judgementForHole state nfp range features = do
       (rss, g)   <- liftMaybe $ getSpanAndTypeAtHole amapping range hf
       resulting_range <- liftMaybe $ toCurrentRange amapping $ realSrcSpanToRange rss
       let (jdg, ctx) = mkJudgementAndContext features g binds rss tcmod
+      hy' <- fmap buildUserHypothesis $ getOccNameTypes state nfp [mkVarOcc "isSpace"]
+
       dflags <- getIdeDynflags state nfp
-      pure (resulting_range, jdg, ctx, dflags)
+      pure (resulting_range, mergeHypotheses hy' jdg, ctx, dflags)
+
+
+getOccNameTypes
+    :: Foldable t
+    => IdeState
+    -> NormalizedFilePath
+    -> t OccName
+    -> MaybeT IO (Map OccName Type)
+getOccNameTypes state nfp occs = do
+  (tcmod, _) <- runStaleIde state nfp TypeCheck
+  (hscenv, _) <- runStaleIde state nfp GhcSessionDeps
+
+  let tcgblenv = tmrTypechecked tcmod
+      modul = extractModule tcgblenv
+      rdrenv = tcg_rdr_env tcgblenv
+  lift $ fmap M.fromList $
+    fmap join $ for (toList occs) $ \occ ->
+      case lookupOccEnv rdrenv occ of
+        Nothing -> pure []
+        Just elts -> do
+          mvar <- lookupName (hscEnv hscenv) modul $ gre_name $ head elts
+          case mvar of
+            Just (AnId v) -> pure [ (occ, varType v) ]
+            _ -> pure []
+
+
+buildUserHypothesis :: Map OccName Type -> Hypothesis CType
+buildUserHypothesis fns = Hypothesis $ do
+  (occ, ty) <- M.toList fns
+  pure $ HyInfo occ ImportPrv $ CType ty
 
 
 mkJudgementAndContext

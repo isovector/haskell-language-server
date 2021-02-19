@@ -55,6 +55,9 @@ instance Ord CType where
 instance Show CType where
   show  = unsafeRender . unCType
 
+instance Show Type where
+  show  = unsafeRender
+
 instance Show OccName where
   show  = unsafeRender
 
@@ -172,6 +175,8 @@ data Provenance
       (Uniquely Class)     -- ^ Class
     -- | A binding explicitly written by the user.
   | UserPrv
+    -- | A binding imported by the user's preference.
+  | ImportPrv
     -- | The recursive hypothesis. Present only in the context of the recursion
     -- tactic.
   | RecursivePrv
