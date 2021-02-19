@@ -5,7 +5,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE DataKinds #-}
 
-module Tactic
+module Copilot
   ( tests
   )
 where
@@ -140,7 +140,7 @@ mkTest
     -> Int  -- ^ Cursor line
     -> Int  -- ^ Cursor columnn
     -> t ( Bool -> Bool   -- Use 'not' for actions that shouldnt be present
-         , TacticCommand  -- An expected command ...
+         , CopilotCommand  -- An expected command ...
          , Text           -- ... for this variable
          ) -- ^ A collection of (un)expected code actions.
     -> TestTree
@@ -174,10 +174,10 @@ setFeatureSet features = do
     DidChangeConfigurationParams $
       toJSON config
 
-goldenTest :: FilePath -> Int -> Int -> TacticCommand -> Text -> TestTree
+goldenTest :: FilePath -> Int -> Int -> CopilotCommand -> Text -> TestTree
 goldenTest = goldenTest' allFeatures
 
-goldenTest' :: FeatureSet -> FilePath -> Int -> Int -> TacticCommand -> Text -> TestTree
+goldenTest' :: FeatureSet -> FilePath -> Int -> Int -> CopilotCommand -> Text -> TestTree
 goldenTest' features input line col tc occ =
   testCase (input <> " (golden)") $ do
     runSession hlsCommand fullCaps copilotPath $ do
@@ -198,7 +198,7 @@ goldenTest' features input line col tc occ =
       liftIO $ edited @?= expected
 
 
-expectFail :: FilePath -> Int -> Int -> TacticCommand -> Text -> TestTree
+expectFail :: FilePath -> Int -> Int -> CopilotCommand -> Text -> TestTree
 expectFail input line col tc occ =
   testCase (input <> " (golden)") $ do
     runSession hlsCommand fullCaps copilotPath $ do
@@ -213,7 +213,7 @@ expectFail input line col tc occ =
 
 
 copilotPath :: FilePath
-copilotPath = "test/testdata/tactic"
+copilotPath = "test/testdata/copilot"
 
 
 executeCommandWithResp :: Command -> Session (ResponseMessage WorkspaceExecuteCommand)

@@ -458,7 +458,7 @@ test-suite func-test
     Rename
     Symbol
     TypeDefinition
-    Tactic
+    Copilot
     Splice
     HaddockComments
     Ide.Plugin.Splice.Types
