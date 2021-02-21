@@ -10,13 +10,11 @@ import           Control.Arrow
 import           Control.Monad
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe
-import           Data.Aeson (Value(Object), fromJSON)
-import           Data.Aeson.Types (Result(Success, Error))
+import           Data.Aeson (Value(Object), fromJSON, Result(Success, Error))
 import           Data.Coerce
 import           Data.Foldable (Foldable(toList))
 import           Data.Functor ((<&>))
-import           Data.Generics.Aliases (mkQ)
-import           Data.Generics.Schemes (everything)
+import           Data.Generics (mkQ, everything)
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe
@@ -37,7 +35,6 @@ import           Development.Shake (RuleResult, Action)
 import           Development.Shake.Classes
 import qualified FastString
 import           GhcPlugins (varType, gre_name, ContainsModule(extractModule))
-import           Ide.Plugin.Config (PluginConfig(plcConfig))
 import qualified Ide.Plugin.Config as Plugin
 import           Ide.Plugin.Tactic.Context
 import           Ide.Plugin.Tactic.FeatureSet
@@ -87,7 +84,7 @@ runStaleIde state nfp a = MaybeT $ runIde state $ useWithStale a nfp
 getFeatureSet :: MonadLsp Plugin.Config m => m FeatureSet
 getFeatureSet = do
   pcfg <- getPluginConfig "tactics"
-  pure $ case fromJSON $ Object $ plcConfig pcfg of
+  pure $ case fromJSON $ Object $ Plugin.plcConfig pcfg of
     Success cfg -> cfg_feature_set cfg
     Error _     -> defaultFeatures
 
