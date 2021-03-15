@@ -193,6 +193,15 @@ apply hi = requireConcreteHole $ tracing ("apply' " <> show (hi_name hi)) $ do
         & #syn_val       %~ noLoc . foldl' (@@) (var' func) . fmap unLoc
 
 
+can_split :: TacticsM (Maybe ([DataCon], [Type]))
+can_split = do
+  jdg <- goal
+  let g = jGoal jdg
+  pure $ tacticsGetDataCons $ unCType g
+
+
+
+
 ------------------------------------------------------------------------------
 -- | Choose between each of the goal's data constructors.
 split :: TacticsM ()
@@ -208,18 +217,14 @@ split = tracing "split(user)" $ do
 -- | Choose between each of the goal's data constructors. Different than
 -- 'split' because it won't split a data con if it doesn't result in any new
 -- goals.
-splitAuto :: TacticsM ()
-splitAuto = requireConcreteHole $ tracing "split(auto)" $ do
+splitAuto :: [DataCon] -> [Type] -> TacticsM ()
+splitAuto dcs _ = requireConcreteHole $ tracing "split(auto)" $ do
   jdg <- goal
-  let g = jGoal jdg
-  case tacticsGetDataCons $ unCType g of
-    Nothing -> empty
-    Just (dcs, _) -> do
-      case isSplitWhitelisted jdg of
-        True -> choice $ fmap splitDataCon dcs
-        False -> do
-          choice $ flip fmap dcs $ \dc -> requireNewHoles $
-            splitDataCon dc
+  case isSplitWhitelisted jdg of
+    True -> choice $ fmap splitDataCon dcs
+    False -> do
+      choice $ flip fmap dcs $ \dc -> requireNewHoles $
+        splitDataCon dc
 
 
 ------------------------------------------------------------------------------
@@ -337,6 +342,9 @@ auto' 0 = do
 auto' n = do
   let loop = auto' (n - 1)
   try intros
+
+  splittable <- can_split
+
   choice
     [ overFunctions $ \fname -> do
         apply fname
@@ -344,7 +352,9 @@ auto' n = do
     , overAlgebraicTerms $ \aname -> do
         destructAuto aname
         loop
-    , splitAuto >> loop
+    , case splittable of
+        Just (dcs, apps) -> splitAuto dcs apps >> loop
+        Nothing -> pure ()
     , assumption >> loop
     , recursion
     ]
