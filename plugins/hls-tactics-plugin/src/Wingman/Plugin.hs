@@ -93,7 +93,9 @@ tacticCmd tac state (TacticParams uri range var_name)
 
         timingOut 2e8 $ join $
           case runTactic ctx jdg $ tac $ mkVarOcc $ T.unpack var_name of
-            Left _ -> Left TacticErrors
+            Left errs -> do
+              traceMX "failed with errors" errs
+              Left TacticErrors
             Right rtr ->
               case rtr_extract rtr of
                 L _ (HsVar _ (L _ rdr)) | isHole (occName rdr) ->
