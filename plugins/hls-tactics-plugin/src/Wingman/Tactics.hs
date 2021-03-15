@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 module Wingman.Tactics
   ( module Wingman.Tactics
   , runTactic
@@ -17,6 +18,7 @@ import qualified Data.Map as M
 import           Data.Maybe
 import           Data.Set (Set)
 import qualified Data.Set as S
+import           Data.Traversable (for)
 import           DataCon
 import           Development.IDE.GHC.Compat
 import           GHC.Exts
@@ -36,28 +38,42 @@ import           Wingman.Naming
 import           Wingman.Types
 
 
+applicable_assumptions :: TacticsM [(HyInfo CType, TCvSubst)]
+applicable_assumptions = do
+  jdg <- goal
+  let ty = jGoal jdg
+      hy = jHypothesis jdg
+  fmap catMaybes $ for (unHypothesis hy) $ \hi -> do
+    subst <- tryUnify (hi_type hi) ty
+    pure $ fmap (hi, ) subst
+
+
 ------------------------------------------------------------------------------
 -- | Use something in the hypothesis to fill the hole.
 assumption :: TacticsM ()
-assumption = attemptOn (S.toList . allNames) assume
+assumption = do
+  as <- applicable_assumptions
+  case as of
+    [] -> do
+      jdg <- goal
+      throwError $ CantSynthesize $ jGoal jdg
+    _ -> attemptOn (const as) $ uncurry assume
 
 
 ------------------------------------------------------------------------------
 -- | Use something named in the hypothesis to fill the hole.
-assume :: OccName -> TacticsM ()
-assume name = rule $ \jdg -> do
-  case M.lookup name $ hyByName $ jHypothesis jdg of
-    Just (hi_type -> ty) -> do
-      unify ty $ jGoal jdg
-      pure $
-        -- This slightly terrible construct is producing a mostly-empty
-        -- 'Synthesized'; but there is no monoid instance to do something more
-        -- reasonable for a default value.
-        (pure (noLoc $ var' name))
-          { syn_trace = tracePrim $ "assume " <> occNameString name
-          , syn_used_vals = S.singleton name
-          }
-    Nothing -> cut
+assume :: HyInfo CType -> TCvSubst -> TacticsM ()
+assume hi subst = rule $ const $ do
+  let name = hi_name hi
+  commitSubst subst
+  pure $
+    -- This slightly terrible construct is producing a mostly-empty
+    -- 'Synthesized'; but there is no monoid instance to do something more
+    -- reasonable for a default value.
+    (pure (noLoc $ var' name))
+      { syn_trace = tracePrim $ "assume " <> occNameString name
+      , syn_used_vals = S.singleton name
+      }
 
 
 recursion :: TacticsM ()

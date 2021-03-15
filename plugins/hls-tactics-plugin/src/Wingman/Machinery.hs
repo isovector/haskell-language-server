@@ -6,7 +6,7 @@ import           Class (Class (classTyVars))
 import           Control.Lens ((<>~))
 import           Control.Monad.Error.Class
 import           Control.Monad.Reader
-import           Control.Monad.State.Class (gets, modify)
+import           Control.Monad.State.Class (gets, modify, MonadState)
 import           Control.Monad.State.Strict (StateT (..))
 import           Data.Bool (bool)
 import           Data.Coerce
@@ -212,6 +212,20 @@ tryUnifyUnivarsButNotSkolems skolems goal inst =
 updateSubst :: TCvSubst -> TacticState -> TacticState
 updateSubst subst s = s { ts_unifier = unionTCvSubst subst (ts_unifier s) }
 
+commitSubst :: TCvSubst -> RuleM ()
+commitSubst = modify . updateSubst
+
+
+tryUnify
+    :: MonadState TacticState m
+    => CType
+    -> CType
+    -> m (Maybe TCvSubst)
+tryUnify goal inst = do
+  skolems <- gets ts_skolems
+  pure $ case tryUnifyUnivarsButNotSkolems skolems goal inst of
+    Just subst -> Just subst
+    Nothing    -> Nothing
 
 
 ------------------------------------------------------------------------------
@@ -219,12 +233,8 @@ updateSubst subst s = s { ts_unifier = unionTCvSubst subst (ts_unifier s) }
 unify :: CType -- ^ The goal type
       -> CType -- ^ The type we are trying unify the goal type with
       -> RuleM ()
-unify goal inst = do
-  skolems <- gets ts_skolems
-  case tryUnifyUnivarsButNotSkolems skolems goal inst of
-    Just subst ->
-      modify $ updateSubst subst
-    Nothing -> cut
+unify goal inst =
+  tryUnify goal inst >>= maybe cut commitSubst
 
 
 ------------------------------------------------------------------------------
