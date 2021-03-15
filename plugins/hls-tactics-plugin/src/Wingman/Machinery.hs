@@ -113,6 +113,10 @@ tracing
 tracing s = mappingExtract (mapTrace $ rose s . pure)
 
 
+cut :: RuleT jdg ext err s m a
+cut = RuleT Empty
+
+
 ------------------------------------------------------------------------------
 -- | Mark that a tactic performed recursion. Doing so incurs a small penalty in
 -- the score.
@@ -220,7 +224,7 @@ unify goal inst = do
   case tryUnifyUnivarsButNotSkolems skolems goal inst of
     Just subst ->
       modify $ updateSubst subst
-    Nothing -> throwError (UnificationError inst goal)
+    Nothing -> cut
 
 
 ------------------------------------------------------------------------------
