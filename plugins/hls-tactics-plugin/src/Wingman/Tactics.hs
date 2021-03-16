@@ -77,12 +77,26 @@ assume hi subst = rule $ const $ do
       }
 
 
-recursion :: TacticsM ()
+can_recurse :: TacticsM [ApplicableTactic]
+can_recurse = do
+  defs <- getCurrentDefinitions
+  jdg <- goal
+  let g = jGoal jdg
+  fmap catMaybes $ for defs $ \(name, ty) -> do
+    let (_, _, _, res) = tacticsSplitFunTy $ unCType ty
+        hi = HyInfo name RecursivePrv ty
+        hy' = recursiveHypothesis defs
+    subst <- tryUnify (CType res) g
+    pure $ fmap (ApplicableRecursion hy' hi) subst
+
+
+recursion :: Hypothesis CType -> HyInfo CType -> TCvSubst -> TacticsM ()
 -- TODO(sandy): This tactic doesn't fire for the @AutoThetaFix@ golden test,
 -- presumably due to running afoul of 'requireConcreteHole'. Look into this!
-recursion = requireConcreteHole $ tracing "recursion" $ do
-  defs <- getCurrentDefinitions
-  attemptOn (const defs) $ \(name, ty) -> markRecursion $ do
+recursion hy' hi subst = requireConcreteHole $ tracing "recursion" $ do
+  markRecursion $ do
+    commitSubst subst
+
     -- Peek allows us to look at the extract produced by this block.
     peek $ \ext -> do
       jdg <- goal
@@ -92,9 +106,10 @@ recursion = requireConcreteHole $ tracing "recursion" $ do
       -- suggests termination.
       unless (any (flip M.member pat_vals) $ syn_used_vals ext) empty
 
-    let hy' = recursiveHypothesis defs
-    localTactic (maybe empty applyApply =<< mkApply (HyInfo name RecursivePrv ty)) (introduce hy')
-      <@> fmap (localTactic assumption . filterPosition name) [0..]
+    localTactic
+        (maybe empty applyApply =<< mkApply hi)
+        (introduce hy')
+      <@> fmap (localTactic assumption . filterPosition (hi_name hi)) [0..]
 
 
 ------------------------------------------------------------------------------
@@ -114,10 +129,11 @@ intros = rule $ \jdg -> do
       ext <- newSubgoal jdg'
       pure $
         ext
-          & #syn_trace %~ rose ("intros {" <> intercalate ", " (fmap show vs) <> "}")
-                        . pure
+          & #syn_trace %~
+                rose ("intros {" <> intercalate ", " (fmap show vs) <> "}")
+                  . pure
           & #syn_scoped <>~ hy'
-          & #syn_val   %~ noLoc . lambda (fmap bvar' vs) . unLoc
+          & #syn_val     %~ noLoc . lambda (fmap bvar' vs) . unLoc
 
 
 ------------------------------------------------------------------------------
@@ -155,7 +171,8 @@ homo = requireConcreteHole . tracing "homo" . rule . destruct' (\dc jdg ->
 ------------------------------------------------------------------------------
 -- | LambdaCase split, and leave holes in the matches.
 destructLambdaCase :: TacticsM ()
-destructLambdaCase = tracing "destructLambdaCase" $ rule $ destructLambdaCase' (const subgoal)
+destructLambdaCase =
+  tracing "destructLambdaCase" $ rule $ destructLambdaCase' (const subgoal)
 
 
 ------------------------------------------------------------------------------
@@ -175,13 +192,17 @@ data ApplicableTactic
   = ApplicableApply OccName [Type] TCvSubst
   | ApplicableAssumption (HyInfo CType) TCvSubst
   | ApplicableSplit [DataCon] [Type]
+  | ApplicableRecursion (Hypothesis CType) (HyInfo CType) TCvSubst
 
 
 applicable_applies :: TacticsM [ApplicableTactic]
 applicable_applies = do
   jdg <- goal
   let hy = jHypothesis jdg
-  fmap catMaybes $ for (filter (isFunction . unCType . hi_type) $ unHypothesis hy) mkApply
+  fmap catMaybes
+    $ for (filter (isFunction . unCType . hi_type) $ unHypothesis hy)
+    $ mkApply
+
 
 mkApply :: HyInfo CType -> TacticsM (Maybe ApplicableTactic)
 mkApply hi = do
@@ -200,26 +221,30 @@ apply = do
   choice $ applies <&> \(ApplicableApply a b c) ->
     apply' a b c
 
+
 applyApply :: ApplicableTactic -> TacticsM ()
 applyApply (ApplicableApply a b c) = apply' a b c
 applyApply (ApplicableAssumption a b) = assume a b
 applyApply (ApplicableSplit a b) = splitAuto a b
+applyApply (ApplicableRecursion a b c) = recursion a b c
+
 
 apply' :: OccName -> [Type] -> TCvSubst -> TacticsM ()
-apply' func args subst = requireConcreteHole $ tracing ("apply' " <> show func) $ do
-  rule $ \jdg -> do
-    commitSubst subst
-    ext
-        <- fmap unzipTrace
-        $ traverse ( newSubgoal
-                    . blacklistingDestruct
-                    . flip withNewGoal jdg
-                    . CType
-                    ) args
-    pure $
+apply' func args subst =
+  requireConcreteHole $ tracing ("apply' " <> show func) $
+    rule $ \jdg -> do
+      commitSubst subst
       ext
-        & #syn_used_vals %~ S.insert func
-        & #syn_val       %~ noLoc . foldl' (@@) (var' func) . fmap unLoc
+          <- fmap unzipTrace
+          $ traverse ( newSubgoal
+                      . blacklistingDestruct
+                      . flip withNewGoal jdg
+                      . CType
+                      ) args
+      pure $
+        ext
+          & #syn_used_vals %~ S.insert func
+          & #syn_val       %~ noLoc . foldl' (@@) (var' func) . fmap unLoc
 
 
 can_split :: TacticsM (Maybe (ApplicableTactic))
@@ -227,8 +252,6 @@ can_split = do
   jdg <- goal
   let g = jGoal jdg
   pure $ fmap (uncurry ApplicableSplit) $ tacticsGetDataCons $ unCType g
-
-
 
 
 ------------------------------------------------------------------------------
@@ -295,6 +318,7 @@ splitConLike dc =
         buildDataCon (unwhitelistingSplit jdg) dc apps
       Nothing -> cut
 
+
 ------------------------------------------------------------------------------
 -- | Attempt to instantiate the given data constructor to solve the goal.
 --
@@ -321,6 +345,7 @@ destructAll = do
            $ unHypothesis
            $ jHypothesis jdg
   for_ args destruct
+
 
 --------------------------------------------------------------------------------
 -- | User-facing tactic to implement "Use constructor <x>"
@@ -374,17 +399,18 @@ auto' n = do
 
   splittable <- can_split
   applies    <- applicable_applies
+  as         <- applicable_assumptions
+  recs       <- can_recurse
+
+  let available = maybeToList splittable <> applies <> as <> recs
 
   choice
-    [ choice $ applies <&> \app -> do
+    [ choice $ available <&> \app -> do
         applyApply app
         loop
     , overAlgebraicTerms $ \aname -> do
         destructAuto aname
         loop
-    , maybe empty (\app -> applyApply app >> loop) $ splittable
-    , assumption >> loop
-    , recursion
     ]
 
 overFunctions :: (HyInfo CType -> TacticsM ()) -> TacticsM ()

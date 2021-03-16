@@ -74,8 +74,15 @@ destructMatches f scrut t jdg = do
                 $ withNewGoal g jdg
           ext <- f con j
           pure $ ext
-            & #syn_trace %~ rose ("match " <> show dc <> " {" <> intercalate ", " (fmap show names) <> "}")
-                          . pure
+            & #syn_trace %~ rose
+                  (mconcat
+                    [ "match "
+                    , show dc
+                    , " {"
+                    , intercalate ", " $ fmap show names
+                    , "}"
+                    ]
+                  ) . pure
             & #syn_scoped <>~ hy'
             & #syn_val     %~ match [mkDestructPat con names] . unLoc
 
@@ -118,29 +125,31 @@ unzipTrace = sequenceA
 -- NOTE: The behaviour depends on GHC's 'dataConInstOrigArgTys'.
 --       We need some tweaks if the compiler changes the implementation.
 conLikeInstOrigArgTys'
-  :: ConLike
-      -- ^ 'DataCon'structor
-  -> [Type]
-      -- ^ /Universally/ quantified type arguments to a result type.
-      --   It /MUST NOT/ contain any dictionaries, coercion and existentials.
-      --
-      --   For example, for @MkMyGADT :: b -> MyGADT a c@, we
-      --   must pass @[a, c]@ as this argument but not @b@, as @b@ is an existential.
-  -> [Type]
-      -- ^ Types of arguments to the ConLike with returned type is instantiated with the second argument.
+    :: ConLike
+    -- ^ 'DataCon'structor
+    -> [Type]
+    -- ^ /Universally/ quantified type arguments to a result type.
+    --   It /MUST NOT/ contain any dictionaries, coercion and existentials.
+    --
+    --   For example, for @MkMyGADT :: b -> MyGADT a c@, we
+    --   must pass @[a, c]@ as this argument but not @b@, as @b@ is an existential.
+    -> [Type]
+    -- ^ Types of arguments to the ConLike with returned type is instantiated
+    -- with the second argument.
 conLikeInstOrigArgTys' con uniTys =
   let exvars = conLikeExTys con
    in conLikeInstOrigArgTys con $
         uniTys ++ fmap mkTyVarTy exvars
-      -- Rationale: At least in GHC <= 8.10, 'dataConInstOrigArgTys'
-      -- unifies the second argument with DataCon's universals followed by existentials.
-      -- If the definition of 'dataConInstOrigArgTys' changes,
-      -- this place must be changed accordingly.
+  -- Rationale: At least in GHC <= 8.10, 'dataConInstOrigArgTys'
+  -- unifies the second argument with DataCon's universals followed by
+  -- existentials. If the definition of 'dataConInstOrigArgTys' changes, this
+  -- place must be changed accordingly.
 
 
 conLikeExTys :: ConLike -> [TyCoVar]
 conLikeExTys (RealDataCon d) = dataConExTys d
 conLikeExTys (PatSynCon p) = patSynExTys p
+
 
 patSynExTys :: PatSyn -> [TyCoVar]
 patSynExTys ps = patSynExTyVars ps
@@ -152,7 +161,7 @@ patSynExTys ps = patSynExTyVars ps
 
 destruct' :: (ConLike -> Judgement -> Rule) -> HyInfo CType -> Judgement -> Rule
 destruct' f hi jdg = do
-  when (isDestructBlacklisted jdg) $ throwError NoApplicableTactic
+  when (isDestructBlacklisted jdg) cut
   let term = hi_name hi
   ext
       <- destructMatches
@@ -171,13 +180,13 @@ destruct' f hi jdg = do
 -- resulting matches.
 destructLambdaCase' :: (ConLike -> Judgement -> Rule) -> Judgement -> Rule
 destructLambdaCase' f jdg = do
-  when (isDestructBlacklisted jdg) $ throwError NoApplicableTactic
+  when (isDestructBlacklisted jdg) cut
   let g  = jGoal jdg
   case splitFunTy_maybe (unCType g) of
     Just (arg, _) | isAlgType arg ->
       fmap (fmap noLoc lambdaCase) <$>
         destructMatches f Nothing (CType arg) jdg
-    _ -> throwError $ GoalMismatch "destructLambdaCase'" g
+    _ -> cut
 
 
 ------------------------------------------------------------------------------

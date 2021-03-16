@@ -212,7 +212,7 @@ tryUnifyUnivarsButNotSkolems skolems goal inst =
 updateSubst :: TCvSubst -> TacticState -> TacticState
 updateSubst subst s = s { ts_unifier = unionTCvSubst subst (ts_unifier s) }
 
-commitSubst :: TCvSubst -> RuleM ()
+commitSubst :: MonadState TacticState m => TCvSubst -> m ()
 commitSubst = modify . updateSubst
 
 

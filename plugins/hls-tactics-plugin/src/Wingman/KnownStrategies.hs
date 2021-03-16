@@ -30,9 +30,11 @@ deriveFmap = do
   try intros
   overAlgebraicTerms homo
   apps <- applicable_applies
+  recs <- can_recurse
+
+  let apps' = apps ++ recs
   choice
-    [ choice $ fmap applyApply apps
+    [ choice $ fmap applyApply apps'
     , assumption
-    , recursion
     ]
 
