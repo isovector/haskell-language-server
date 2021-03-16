@@ -31,10 +31,10 @@ deriveFmap = do
   overAlgebraicTerms homo
   apps <- applicable_applies
   recs <- can_recurse
+  as   <- applicable_assumptions
 
-  let apps' = apps ++ recs
+  let apps' = apps <> recs <> as
   choice
-    [ choice $ fmap applyApply apps'
-    , assumption
+    [ choice $ fmap (\a -> applyApply a >> auto' 2) apps'
     ]
 
