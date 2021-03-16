@@ -17,7 +17,6 @@ import           Data.Generics.Labels ()
 import           Data.List
 import qualified Data.Map as M
 import           Data.Maybe
-import           Data.Set (Set)
 import qualified Data.Set as S
 import           Data.Traversable (for)
 import           DataCon
@@ -58,7 +57,7 @@ assumption = do
     [] -> do
       jdg <- goal
       throwError $ CantSynthesize $ jGoal jdg
-    _ -> choice $ fmap applyApply as
+    _ -> choice $ fmap dispatchApplicableTactic as
 
 
 ------------------------------------------------------------------------------
@@ -107,7 +106,7 @@ recursion hy' hi subst = requireConcreteHole $ tracing "recursion" $ do
       unless (any (flip M.member pat_vals) $ syn_used_vals ext) empty
 
     localTactic
-        (maybe empty applyApply =<< mkApply hi)
+        (maybe empty dispatchApplicableTactic =<< mkApply hi)
         (introduce hy')
       <@> fmap (localTactic assumption . filterPosition (hi_name hi)) [0..]
 
@@ -215,23 +214,16 @@ mkApply hi = do
   pure $ fmap (ApplicableApply (hi_name hi) args) subst
 
 
-apply :: TacticsM ()
-apply = do
-  applies <- applicable_applies
-  choice $ applies <&> \(ApplicableApply a b c) ->
-    apply' a b c
+dispatchApplicableTactic :: ApplicableTactic -> TacticsM ()
+dispatchApplicableTactic (ApplicableApply a b c) = apply a b c
+dispatchApplicableTactic (ApplicableAssumption a b) = assume a b
+dispatchApplicableTactic (ApplicableSplit a b) = splitAuto a b
+dispatchApplicableTactic (ApplicableRecursion a b c) = recursion a b c
 
 
-applyApply :: ApplicableTactic -> TacticsM ()
-applyApply (ApplicableApply a b c) = apply' a b c
-applyApply (ApplicableAssumption a b) = assume a b
-applyApply (ApplicableSplit a b) = splitAuto a b
-applyApply (ApplicableRecursion a b c) = recursion a b c
-
-
-apply' :: OccName -> [Type] -> TCvSubst -> TacticsM ()
-apply' func args subst =
-  requireConcreteHole $ tracing ("apply' " <> show func) $
+apply :: OccName -> [Type] -> TCvSubst -> TacticsM ()
+apply func args subst =
+  requireConcreteHole $ tracing ("apply " <> show func) $
     rule $ \jdg -> do
       commitSubst subst
       ext
@@ -406,26 +398,17 @@ auto' n = do
 
   choice
     [ choice $ available <&> \app -> do
-        applyApply app
+        dispatchApplicableTactic app
         loop
     , overAlgebraicTerms $ \aname -> do
         destructAuto aname
         loop
     ]
 
-overFunctions :: (HyInfo CType -> TacticsM ()) -> TacticsM ()
-overFunctions =
-  attemptOn $ filter (isFunction . unCType . hi_type)
-           . unHypothesis
-           . jHypothesis
 
 overAlgebraicTerms :: (HyInfo CType -> TacticsM ()) -> TacticsM ()
 overAlgebraicTerms =
   attemptOn $ filter (isJust . algebraicTyCon . unCType . hi_type)
             . unHypothesis
             . jHypothesis
-
-
-allNames :: Judgement -> Set OccName
-allNames = hyNamesInScope . jHypothesis
 

@@ -35,6 +35,6 @@ deriveFmap = do
 
   let apps' = apps <> recs <> as
   choice
-    [ choice $ fmap (\a -> applyApply a >> auto' 2) apps'
+    [ choice $ fmap (\a -> dispatchApplicableTactic a >> auto' 2) apps'
     ]
 
