@@ -29,8 +29,9 @@ deriveFmap :: TacticsM ()
 deriveFmap = do
   try intros
   overAlgebraicTerms homo
+  apps <- applicable_applies
   choice
-    [ overFunctions apply >> auto' 2
+    [ choice $ fmap applyApply apps
     , assumption
     , recursion
     ]

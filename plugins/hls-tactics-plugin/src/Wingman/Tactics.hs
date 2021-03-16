@@ -12,6 +12,7 @@ import           Control.Monad.Except (throwError)
 import           Control.Monad.Reader.Class (MonadReader (ask))
 import           Control.Monad.State.Strict (StateT(..), runStateT)
 import           Data.Foldable
+import           Data.Functor ((<&>))
 import           Data.Generics.Labels ()
 import           Data.List
 import qualified Data.Map as M
@@ -38,14 +39,14 @@ import           Wingman.Naming
 import           Wingman.Types
 
 
-applicable_assumptions :: TacticsM [(HyInfo CType, TCvSubst)]
+applicable_assumptions :: TacticsM [ApplicableTactic]
 applicable_assumptions = do
   jdg <- goal
   let ty = jGoal jdg
       hy = jHypothesis jdg
   fmap catMaybes $ for (unHypothesis hy) $ \hi -> do
     subst <- tryUnify (hi_type hi) ty
-    pure $ fmap (hi, ) subst
+    pure $ fmap (ApplicableAssumption hi) subst
 
 
 ------------------------------------------------------------------------------
@@ -57,7 +58,7 @@ assumption = do
     [] -> do
       jdg <- goal
       throwError $ CantSynthesize $ jGoal jdg
-    _ -> attemptOn (const as) $ uncurry assume
+    _ -> choice $ fmap applyApply as
 
 
 ------------------------------------------------------------------------------
@@ -92,7 +93,7 @@ recursion = requireConcreteHole $ tracing "recursion" $ do
       unless (any (flip M.member pat_vals) $ syn_used_vals ext) empty
 
     let hy' = recursiveHypothesis defs
-    localTactic (apply $ HyInfo name RecursivePrv ty) (introduce hy')
+    localTactic (maybe empty applyApply =<< mkApply (HyInfo name RecursivePrv ty)) (introduce hy')
       <@> fmap (localTactic assumption . filterPosition name) [0..]
 
 
@@ -170,16 +171,44 @@ homoLambdaCase =
         $ jGoal jdg
 
 
-apply :: HyInfo CType -> TacticsM ()
-apply hi = requireConcreteHole $ tracing ("apply' " <> show (hi_name hi)) $ do
+data ApplicableTactic
+  = ApplicableApply OccName [Type] TCvSubst
+  | ApplicableAssumption (HyInfo CType) TCvSubst
+  | ApplicableSplit [DataCon] [Type]
+
+
+applicable_applies :: TacticsM [ApplicableTactic]
+applicable_applies = do
   jdg <- goal
-  let g  = jGoal jdg
+  let hy = jHypothesis jdg
+  fmap catMaybes $ for (filter (isFunction . unCType . hi_type) $ unHypothesis hy) mkApply
+
+mkApply :: HyInfo CType -> TacticsM (Maybe ApplicableTactic)
+mkApply hi = do
+  jdg <- goal
+  let g = jGoal jdg
       ty = unCType $ hi_type hi
-      func = hi_name hi
   ty' <- freshTyvars ty
   let (_, _, args, ret) = tacticsSplitFunTy ty'
+  subst <- tryUnify g (CType ret)
+  pure $ fmap (ApplicableApply (hi_name hi) args) subst
+
+
+apply :: TacticsM ()
+apply = do
+  applies <- applicable_applies
+  choice $ applies <&> \(ApplicableApply a b c) ->
+    apply' a b c
+
+applyApply :: ApplicableTactic -> TacticsM ()
+applyApply (ApplicableApply a b c) = apply' a b c
+applyApply (ApplicableAssumption a b) = assume a b
+applyApply (ApplicableSplit a b) = splitAuto a b
+
+apply' :: OccName -> [Type] -> TCvSubst -> TacticsM ()
+apply' func args subst = requireConcreteHole $ tracing ("apply' " <> show func) $ do
   rule $ \jdg -> do
-    unify g (CType ret)
+    commitSubst subst
     ext
         <- fmap unzipTrace
         $ traverse ( newSubgoal
@@ -193,11 +222,11 @@ apply hi = requireConcreteHole $ tracing ("apply' " <> show (hi_name hi)) $ do
         & #syn_val       %~ noLoc . foldl' (@@) (var' func) . fmap unLoc
 
 
-can_split :: TacticsM (Maybe ([DataCon], [Type]))
+can_split :: TacticsM (Maybe (ApplicableTactic))
 can_split = do
   jdg <- goal
   let g = jGoal jdg
-  pure $ tacticsGetDataCons $ unCType g
+  pure $ fmap (uncurry ApplicableSplit) $ tacticsGetDataCons $ unCType g
 
 
 
@@ -344,17 +373,16 @@ auto' n = do
   try intros
 
   splittable <- can_split
+  applies    <- applicable_applies
 
   choice
-    [ overFunctions $ \fname -> do
-        apply fname
+    [ choice $ applies <&> \app -> do
+        applyApply app
         loop
     , overAlgebraicTerms $ \aname -> do
         destructAuto aname
         loop
-    , case splittable of
-        Just (dcs, apps) -> splitAuto dcs apps >> loop
-        Nothing -> pure ()
+    , maybe empty (\app -> applyApply app >> loop) $ splittable
     , assumption >> loop
     , recursion
     ]
