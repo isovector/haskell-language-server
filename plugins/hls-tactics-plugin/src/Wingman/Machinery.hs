@@ -252,6 +252,10 @@ methodHypothesis ty = do
        )
 
 
+cut :: RuleT jdg ext err s m a
+cut = RuleT Empty
+
+
 ------------------------------------------------------------------------------
 -- | Mystical time-traveling combinator for inspecting the extracts produced by
 -- a tactic. We can use it to guard that extracts match certain predicates, for

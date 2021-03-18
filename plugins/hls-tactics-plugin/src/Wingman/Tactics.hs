@@ -7,7 +7,7 @@ import           ConLike (ConLike(RealDataCon))
 import           Control.Applicative (Alternative(empty))
 import           Control.Lens ((&), (%~), (<>~))
 import           Control.Monad (unless)
-import           Control.Monad.Except (throwError)
+import           Control.Monad.Except (throwError, MonadError)
 import           Control.Monad.Reader.Class (MonadReader (ask))
 import           Control.Monad.State.Strict (StateT(..), runStateT)
 import           Data.Foldable
@@ -57,7 +57,7 @@ assume name = rule $ \jdg -> do
           { syn_trace = tracePrim $ "assume " <> occNameString name
           , syn_used_vals = S.singleton name
           }
-    Nothing -> throwError $ UndefinedHypothesis name
+    Nothing -> cut
 
 
 recursion :: TacticsM ()
@@ -87,7 +87,7 @@ intros = rule $ \jdg -> do
   let g  = jGoal jdg
   ctx <- ask
   case tcSplitFunTys $ unCType g of
-    ([], _) -> throwError $ GoalMismatch "intros" g
+    ([], _) -> cut
     (as, b) -> do
       vs <- mkManyGoodNames (hyNamesInScope $ jEntireHypothesis jdg) as
       let top_hole = isTopHole ctx jdg
@@ -203,7 +203,7 @@ split = tracing "split(user)" $ do
   jdg <- goal
   let g = jGoal jdg
   case tacticsGetDataCons $ unCType g of
-    Nothing -> throwError $ GoalMismatch "split" g
+    Nothing -> empty
     Just (dcs, _) -> choice $ fmap splitDataCon dcs
 
 
@@ -216,7 +216,7 @@ splitAuto = requireConcreteHole $ tracing "split(auto)" $ do
   jdg <- goal
   let g = jGoal jdg
   case tacticsGetDataCons $ unCType g of
-    Nothing -> throwError $ GoalMismatch "split" g
+    Nothing -> empty
     Just (dcs, _) -> do
       case isSplitWhitelisted jdg of
         True -> choice $ fmap splitDataCon dcs
@@ -235,7 +235,7 @@ splitSingle = tracing "splitSingle" $ do
   case tacticsGetDataCons $ unCType g of
     Just ([dc], _) -> do
       splitDataCon dc
-    _ -> throwError $ GoalMismatch "splitSingle" g
+    _ -> empty
 
 
 ------------------------------------------------------------------------------
@@ -262,7 +262,7 @@ splitConLike dc =
     case splitTyConApp_maybe $ unCType g of
       Just (_, apps) -> do
         buildDataCon True (unwhitelistingSplit jdg) dc apps
-      Nothing -> throwError $ GoalMismatch "splitDataCon" g
+      Nothing -> cut
 
 ------------------------------------------------------------------------------
 -- | Attempt to instantiate the given data constructor to solve the goal.
@@ -305,8 +305,8 @@ userSplit occ = do
       case find (sloppyEqOccName occ . occName . dataConName)
              $ tyConDataCons tc of
         Just dc -> splitDataCon dc
-        Nothing -> throwError $ NotInScope occ
-    Nothing -> throwError $ NotInScope occ
+        Nothing -> empty
+    Nothing -> empty
 
 
 ------------------------------------------------------------------------------
@@ -332,23 +332,27 @@ refine = do
   try' splitSingle
   try' intros
 
+cantSynthesize :: MonadError TacticError m => Judgement -> m a
+cantSynthesize jdg = throwError $ CantSynthesize $ jGoal jdg
 
 auto' :: Int -> TacticsM ()
-auto' 0 = throwError NoProgress
+auto' 0 = goal >>= cantSynthesize
 auto' n = do
   let loop = auto' (n - 1)
   try intros
-  choice
-    [ overFunctions $ \fname -> do
-        apply fname
-        loop
-    , overAlgebraicTerms $ \aname -> do
-        destructAuto aname
-        loop
-    , splitAuto >> loop
-    , assumption >> loop
-    , recursion
-    ]
+  commit
+    (choice
+      [ overFunctions $ \fname -> do
+          apply fname
+          loop
+      , overAlgebraicTerms $ \aname -> do
+          destructAuto aname
+          loop
+      , splitAuto >> loop
+      , assumption >> loop
+      , recursion
+      ])
+    $ goal >>= cantSynthesize
 
 overFunctions :: (HyInfo CType -> TacticsM ()) -> TacticsM ()
 overFunctions =
