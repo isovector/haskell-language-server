@@ -347,8 +347,8 @@ instance MonadNamedExtract Int (Synthesized (LHsExpr GhcPs)) ExtractM where
 
 instance MetaSubst Int (Synthesized (LHsExpr GhcPs)) where
   substMeta u val a = join $ everywhereM (mkM $ \case
-    (L _ (HsVar _ (L _ name))) | name == mkMetaHoleName u ->
-      val
+    (L _ (HsVar _ (L _ name)))
+      | name == mkMetaHoleName u -> val
     (t :: LHsExpr GhcPs) -> pure t) a
 
 
