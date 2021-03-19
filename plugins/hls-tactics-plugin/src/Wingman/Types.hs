@@ -1,8 +1,10 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+{-# LANGUAGE UndecidableInstances #-}
 module Wingman.Types
   ( module Wingman.Types
   , module Wingman.Debug
@@ -18,6 +20,7 @@ import           ConLike (ConLike)
 import           Control.Lens hiding (Context, (.=))
 import           Control.Monad.Reader
 import           Control.Monad.State
+import qualified Control.Monad.State.Strict as Strict
 import           Data.Aeson
 import           Data.Coerce
 import           Data.Function
@@ -32,16 +35,20 @@ import           Data.Tree
 import           Development.IDE.GHC.Compat hiding (Node)
 import           Development.IDE.GHC.Orphans ()
 import           Development.IDE.Types.Location
-import           GHC.Generics
+import           GHC.Generics (Generic)
 import           GHC.SourceGen (var)
 import           OccName
+import           Refinery.ProofState (ProofStateT(Effect, Axiom))
 import           Refinery.Tactic
+import           Refinery.Tactic.Internal
 import           System.IO.Unsafe (unsafePerformIO)
 import           Type (TCvSubst, Var, eqType, nonDetCmpType, emptyTCvSubst)
 import           UniqSupply (takeUniqFromSupply, mkSplitUniqSupply, UniqSupply)
 import           Unique (nonDetCmpUnique, Uniquable, getUnique, Unique)
 import           Wingman.Debug
 import           Wingman.FeatureSet
+import GHC.Exts (fromString)
+import Data.Generics hiding (Generic, TyCon)
 
 
 ------------------------------------------------------------------------------
@@ -302,13 +309,44 @@ data Judgement' a = Judgement
 type Judgement = Judgement' CType
 
 
-newtype ExtractM a = ExtractM { unExtractM :: Reader Context a }
+newtype ExtractM a = ExtractM { unExtractM' :: Strict.StateT Int (Reader Context) a }
     deriving newtype (Functor, Applicative, Monad, MonadReader Context)
+
+unExtractM :: ExtractM a -> Reader Context a
+unExtractM = flip Strict.evalStateT 0 . unExtractM'
 
 ------------------------------------------------------------------------------
 -- | Orphan instance for producing holes when attempting to solve tactics.
-instance MonadExtract (Synthesized (LHsExpr GhcPs)) ExtractM where
+instance MonadExtract (Synthesized (LHsExpr GhcPs)) TacticError ExtractM where
   hole = pure . pure . noLoc $ var "_"
+  unsolvableHole _ = pure . pure . noLoc $ var "_"
+
+
+instance MonadReader r m => MonadReader r (TacticT jdg ext err s m) where
+  ask = TacticT $ lift $ Effect $ fmap pure ask
+  local f (TacticT m) = TacticT $ Strict.StateT $ \jdg ->
+    Effect $ local f $ pure $ Strict.runStateT m jdg
+
+instance MonadReader r m => MonadReader r (RuleT jdg ext err s m) where
+  ask = RuleT $ Effect $ fmap Axiom ask
+  local f (RuleT m) = RuleT $ Effect $ local f $ pure m
+
+mkMetaHoleName :: Int -> RdrName
+mkMetaHoleName u = fromString $ "_" <> show u
+
+
+
+instance MonadNamedExtract Int (Synthesized (LHsExpr GhcPs)) ExtractM where
+  namedHole = do
+    u <- ExtractM $ state $ \ix -> (ix, ix + 1)
+    h <- pure . pure . noLoc $ var $ fromString $ occNameString $ occName $ mkMetaHoleName u
+    pure (u, h)
+
+instance MetaSubst Int (Synthesized (LHsExpr GhcPs)) where
+  substMeta u val = everywhere $ mkT $ \case
+    (HsVar _ (L _ name) | name == mkMetaHoleName u -> val
+    (t :: Synthesized (LHsExpr GhcPs)) -> t
+
 
 
 ------------------------------------------------------------------------------

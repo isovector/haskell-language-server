@@ -7,7 +7,6 @@ import           ConLike (ConLike(RealDataCon))
 import           Control.Applicative (Alternative(empty))
 import           Control.Lens ((&), (%~), (<>~))
 import           Control.Monad (unless)
-import           Control.Monad.Except (throwError, MonadError)
 import           Control.Monad.Reader.Class (MonadReader (ask))
 import           Control.Monad.State.Strict (StateT(..), runStateT)
 import           Data.Foldable
@@ -125,6 +124,8 @@ destructAuto hi = requireConcreteHole $ tracing "destruct(auto)" $ do
 -- | When running auto, in order to prune the auto search tree, we try
 -- a homomorphic destruct whenever possible. If that produces any results, we
 -- can probably just prune the other side.
+
+
 destructOrHomoAuto :: HyInfo CType -> TacticsM ()
 destructOrHomoAuto hi = tracing "destructOrHomoAuto" $ do
   jdg <- goal
@@ -332,8 +333,8 @@ refine = do
   try' splitSingle
   try' intros
 
-cantSynthesize :: MonadError TacticError m => Judgement -> m a
-cantSynthesize jdg = throwError $ CantSynthesize $ jGoal jdg
+cantSynthesize :: Judgement -> TacticsM a
+cantSynthesize = failure . CantSynthesize . jGoal
 
 auto' :: Int -> TacticsM ()
 auto' 0 = goal >>= cantSynthesize

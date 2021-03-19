@@ -1,7 +1,6 @@
 module Wingman.KnownStrategies.QuickCheck where
 
 import ConLike (ConLike(RealDataCon))
-import Control.Monad.Except (MonadError (throwError))
 import Data.Bool (bool)
 import Data.Generics (everything, mkQ)
 import Data.List (partition)
@@ -22,6 +21,7 @@ import Wingman.CodeGen
 import Wingman.Judgements (jGoal)
 import Wingman.Machinery (tracePrim)
 import Wingman.Types
+import Control.Applicative (empty)
 
 
 ------------------------------------------------------------------------------
@@ -61,7 +61,7 @@ deriveArbitrary = do
                             (list $ fmap genExpr big)
                             terminal_expr
                     ]
-    _ -> throwError $ GoalMismatch "deriveArbitrary" ty
+    _ -> empty
 
 
 ------------------------------------------------------------------------------

@@ -4,13 +4,11 @@ module Wingman.Machinery where
 
 import           Class (Class (classTyVars))
 import           Control.Lens ((<>~))
-import           Control.Monad.Error.Class
 import           Control.Monad.Reader
 import           Control.Monad.State.Class (gets, modify)
 import           Control.Monad.State.Strict (StateT (..))
 import           Data.Bool (bool)
 import           Data.Coerce
-import           Data.Either
 import           Data.Foldable
 import           Data.Functor ((<&>))
 import           Data.Generics (everything, gcount, mkQ)
@@ -72,30 +70,33 @@ runTactic ctx jdg t =
           defaultTacticState
             { ts_skolems = skolems
             }
-    in case partitionEithers
-          . flip runReader ctx
+    in case flip runReader ctx
           . unExtractM
           $ runTacticT t jdg tacticState of
-      (errs, []) -> Left $ take 50 errs
-      (_, fmap assoc23 -> solns) -> do
+      (Left errs) -> Left $ take 50 errs
+      (Right solns) -> do
         let sorted =
-              flip sortBy solns $ comparing $ \(ext, (_, holes)) ->
+              flip sortBy solns $ comparing $ \(Proof ext _ holes) ->
                 Down $ scoreSolution ext jdg holes
         case sorted of
-          ((syn, _) : _) ->
+          ((Proof syn _ _) : _) ->
             Right $
               RunTacticResults
                 { rtr_trace = syn_trace syn
                 , rtr_extract = simplify $ syn_val syn
-                , rtr_other_solns = reverse . fmap fst $ sorted
+                , rtr_other_solns = reverse . fmap pf_extract $ sorted
                 , rtr_jdg = jdg
                 , rtr_ctx = ctx
                 }
           -- guaranteed to not be empty
           _ -> Left []
 
-assoc23 :: (a, b, c) -> (a, (b, c))
-assoc23 (a, b, c) = (a, (b, c))
+pruning
+    :: TacticsM ()
+    -> ([Judgement' CType] -> Maybe TacticError)
+    -> TacticsM ()
+pruning t f = reify t $ \holes ext ->
+  resume' holes ext
 
 
 tracePrim :: String -> Trace
@@ -132,7 +133,7 @@ mappingExtract
     -> TacticT jdg ext err s m a
 mappingExtract f (TacticT m)
   = TacticT $ StateT $ \jdg ->
-      mapExtract' f $ runStateT m jdg
+      mapExtract id f $ runStateT m jdg
 
 
 ------------------------------------------------------------------------------
@@ -220,7 +221,7 @@ unify goal inst = do
   case tryUnifyUnivarsButNotSkolems skolems goal inst of
     Just subst ->
       modify $ updateSubst subst
-    Nothing -> throwError (UnificationError inst goal)
+    Nothing -> cut -- failure (UnificationError inst goal)
 
 
 ------------------------------------------------------------------------------
@@ -286,7 +287,7 @@ requireConcreteHole m = do
   let vars = S.fromList $ tyCoVarsOfTypeWellScoped $ unCType $ jGoal jdg
   case S.size $ vars S.\\ skolems of
     0 -> m
-    _ -> throwError TooPolymorphic
+    _ -> failure TooPolymorphic
 
 
 ------------------------------------------------------------------------------
