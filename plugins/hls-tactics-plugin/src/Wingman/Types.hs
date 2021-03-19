@@ -49,6 +49,7 @@ import           Wingman.Debug
 import           Wingman.FeatureSet
 import GHC.Exts (fromString)
 import Data.Generics hiding (Generic, TyCon)
+import GhcPlugins (mkRdrUnqual)
 
 
 ------------------------------------------------------------------------------
@@ -111,6 +112,7 @@ instance FromJSON Config where
 ------------------------------------------------------------------------------
 -- | A wrapper around 'Type' which supports equality and ordering.
 newtype CType = CType { unCType :: Type }
+  deriving stock (Data, Typeable)
 
 instance Eq CType where
   (==) = eqType `on` unCType
@@ -226,7 +228,7 @@ data Provenance
     -- to keep these in the hypothesis set, rather than filtering it, in order
     -- to continue tracking downstream provenance.
   | DisallowedPrv DisallowReason Provenance
-  deriving stock (Eq, Show, Generic, Ord)
+  deriving stock (Eq, Show, Generic, Ord, Data, Typeable)
 
 
 ------------------------------------------------------------------------------
@@ -236,7 +238,7 @@ data DisallowReason
   | Shadowed
   | RecursiveCall
   | AlreadyDestructed
-  deriving stock (Eq, Show, Generic, Ord)
+  deriving stock (Eq, Show, Generic, Ord, Data, Typeable)
 
 
 ------------------------------------------------------------------------------
@@ -252,13 +254,14 @@ data PatVal = PatVal
     -- ^ The datacon which introduced this term.
   , pv_position  :: Int
     -- ^ The position of this binding in the datacon's arguments.
-  } deriving stock (Eq, Show, Generic, Ord)
+  } deriving stock (Eq, Show, Generic, Ord, Data, Typeable)
 
 
 ------------------------------------------------------------------------------
 -- | A wrapper which uses a 'Uniquable' constraint for providing 'Eq' and 'Ord'
 -- instances.
 newtype Uniquely a = Uniquely { getViaUnique :: a }
+  deriving stock (Data, Typeable)
   deriving Show via a
 
 instance Uniquable a => Eq (Uniquely a) where
@@ -275,7 +278,7 @@ instance Uniquable a => Ord (Uniquely a) where
 newtype Hypothesis a = Hypothesis
   { unHypothesis :: [HyInfo a]
   }
-  deriving stock (Functor, Eq, Show, Generic, Ord)
+  deriving stock (Functor, Eq, Show, Generic, Ord, Data, Typeable)
   deriving newtype (Semigroup, Monoid)
 
 
@@ -286,7 +289,7 @@ data HyInfo a = HyInfo
   , hi_provenance :: Provenance
   , hi_type       :: a
   }
-  deriving stock (Functor, Eq, Show, Generic, Ord)
+  deriving stock (Functor, Eq, Show, Generic, Ord, Data, Typeable)
 
 
 ------------------------------------------------------------------------------
@@ -332,7 +335,7 @@ instance MonadReader r m => MonadReader r (RuleT jdg ext err s m) where
   local f (RuleT m) = RuleT $ Effect $ local f $ pure m
 
 mkMetaHoleName :: Int -> RdrName
-mkMetaHoleName u = fromString $ "_" <> show u
+mkMetaHoleName u = mkRdrUnqual $ mkVarOcc $ "_" <> show u
 
 
 
@@ -343,9 +346,10 @@ instance MonadNamedExtract Int (Synthesized (LHsExpr GhcPs)) ExtractM where
     pure (u, h)
 
 instance MetaSubst Int (Synthesized (LHsExpr GhcPs)) where
-  substMeta u val = everywhere $ mkT $ \case
-    (HsVar _ (L _ name) | name == mkMetaHoleName u -> val
-    (t :: Synthesized (LHsExpr GhcPs)) -> t
+  substMeta u val a = join $ everywhereM (mkM $ \case
+    (L _ (HsVar _ (L _ name))) | name == mkMetaHoleName u ->
+      val
+    (t :: LHsExpr GhcPs) -> pure t) a
 
 
 
@@ -432,7 +436,7 @@ data Synthesized a = Synthesized
     -- ^ The number of recursive calls
   , syn_val    :: a
   }
-  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic, Data, Typeable)
 
 mapTrace :: (Trace -> Trace) -> Synthesized a -> Synthesized a
 mapTrace f (Synthesized tr sc uv rc a) = Synthesized (f tr) sc uv rc a
@@ -446,6 +450,20 @@ instance Applicative Synthesized where
   pure = Synthesized mempty mempty mempty mempty
   Synthesized tr1 sc1 uv1 rc1 f <*> Synthesized tr2 sc2 uv2 rc2 a =
     Synthesized (tr1 <> tr2) (sc1 <> sc2) (uv1 <> uv2) (rc1 <> rc2) $ f a
+
+
+instance Monad Synthesized where
+  return = pure
+  Synthesized tr1 sc1 uv1 rc1 a >>= f =
+    case f a of
+      Synthesized tr2 sc2 uv2 rc2 b ->
+        Synthesized
+          { syn_trace = tr1 <> tr2
+          , syn_scoped = sc1 <> sc2
+          , syn_used_vals = uv1 <> uv2
+          , syn_recursion_count = rc1 <> rc2
+          , syn_val = b
+          }
 
 
 ------------------------------------------------------------------------------
@@ -467,7 +485,7 @@ emptyContext  = Context mempty mempty mempty
 
 
 newtype Rose a = Rose (Tree a)
-  deriving stock (Eq, Functor, Generic)
+  deriving stock (Eq, Functor, Generic, Data, Typeable)
 
 instance Show (Rose String) where
   show = unlines . dropEveryOther . lines . drawTree . coerce

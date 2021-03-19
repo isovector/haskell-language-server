@@ -91,12 +91,10 @@ runTactic ctx jdg t =
           -- guaranteed to not be empty
           _ -> Left []
 
-pruning
-    :: TacticsM ()
-    -> ([Judgement' CType] -> Maybe TacticError)
-    -> TacticsM ()
-pruning t f = reify t $ \holes ext ->
-  resume' holes ext
+pruning :: (MetaSubst meta ext, MonadNamedExtract meta ext m) => TacticT jdg ext err s m () -> ([jdg] -> Maybe err) -> TacticT jdg ext err s m ()
+pruning t f = reify t $ \goals ext -> case f (fmap snd goals) of
+  Just err -> failure err
+  Nothing  -> resume' goals ext
 
 
 tracePrim :: String -> Trace
