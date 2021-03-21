@@ -1,11 +1,12 @@
 {-# LANGUAGE RecordWildCards       #-}
 
+{-# LANGUAGE RankNTypes #-}
 module Wingman.Machinery where
 
 import           Class (Class (classTyVars))
-import           Control.Lens ((<>~))
+import           Control.Lens ((<>~), (%=))
 import           Control.Monad.Reader
-import           Control.Monad.State.Class (gets, modify)
+import           Control.Monad.State.Class (gets, modify, MonadState)
 import           Control.Monad.State.Strict (StateT (..))
 import           Data.Bool (bool)
 import           Data.Coerce
@@ -91,10 +92,44 @@ runTactic ctx jdg t =
           -- guaranteed to not be empty
           _ -> Left []
 
-pruning :: (MetaSubst meta ext, MonadNamedExtract meta ext m) => TacticT jdg ext err s m () -> ([jdg] -> Maybe err) -> TacticT jdg ext err s m ()
+
+pruning
+    :: (MetaSubst meta ext, MonadNamedExtract meta ext m)
+    => TacticT jdg ext err s m ()
+    -> ([jdg] -> Maybe err)
+    -> TacticT jdg ext err s m ()
 pruning t f = reify t $ \goals ext -> case f (fmap snd goals) of
   Just err -> failure err
   Nothing  -> resume' goals ext
+
+
+fastFail :: TacticsM () -> TacticsM ()
+fastFail m = do
+  fs     <- liftUnderlyingState $ gets us_failureset
+  g      <- inspect jGoal
+  finger <- inspect jFingerprint
+  case lookupFailure fs finger g of
+    Just _  -> failure $ DebugError "failing fast from a subsumed fingerprint"
+    Nothing -> do
+      handler $ \err ->
+        case err of
+          CantSynthesize ty -> do
+            #us_failureset %= (addFailure finger g $ S.singleton ty)
+            pure err
+            -- pure err
+          _ -> pure err
+      m
+
+
+addFailure :: HyFinger -> CType -> Set CType ->  FailureSet -> FailureSet
+addFailure finger g progress fs = undefined -- do
+  -- case lookupFailure fs finger g of
+  --   Just  ->fs
+  --   False -> FailureSet $ fmap _ $ unFailureSet fs
+
+
+liftUnderlyingState :: (forall m. MonadState UnderlyingState m => m a) -> TacticsM a
+liftUnderlyingState = TacticT . lift . Effect . fmap pure . ExtractM
 
 
 tracePrim :: String -> Trace

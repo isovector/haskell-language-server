@@ -81,6 +81,10 @@ introduceHypothesis f ns =
     HyInfo name (f (length ns) pos) ty
 
 
+jFingerprint :: Judgement -> HyFinger
+jFingerprint = mkFingerprint . jHypothesis
+
+
 ------------------------------------------------------------------------------
 -- | Introduce bindings in the context of a lamba.
 lambdaHypothesis

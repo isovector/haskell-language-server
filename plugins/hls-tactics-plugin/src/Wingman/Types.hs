@@ -16,6 +16,8 @@ module Wingman.Types
   , Range
   ) where
 
+import qualified Data.Map as M
+import Data.Map (Map)
 import           ConLike (ConLike)
 import           Control.Lens hiding (Context, (.=))
 import           Control.Monad.Reader
@@ -24,19 +26,25 @@ import qualified Control.Monad.State.Strict as Strict
 import           Data.Aeson
 import           Data.Coerce
 import           Data.Function
+import           Data.Generics hiding (Generic, TyCon, GT)
 import           Data.Generics.Product (field)
+import           Data.Generics.Labels ()
+import           Data.List (find)
 import           Data.List.NonEmpty (NonEmpty (..))
 import           Data.Maybe (fromMaybe)
 import           Data.Semigroup
 import           Data.Set (Set)
+import qualified Data.Set as S
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Tree
 import           Development.IDE.GHC.Compat hiding (Node)
 import           Development.IDE.GHC.Orphans ()
 import           Development.IDE.Types.Location
+import           GHC.Exts (fromString)
 import           GHC.Generics (Generic)
 import           GHC.SourceGen (var)
+import           GhcPlugins (mkRdrUnqual)
 import           OccName
 import           Refinery.ProofState (ProofStateT(Effect, Axiom))
 import           Refinery.Tactic
@@ -47,9 +55,7 @@ import           UniqSupply (takeUniqFromSupply, mkSplitUniqSupply, UniqSupply)
 import           Unique (nonDetCmpUnique, Uniquable, getUnique, Unique)
 import           Wingman.Debug
 import           Wingman.FeatureSet
-import GHC.Exts (fromString)
-import Data.Generics hiding (Generic, TyCon)
-import GhcPlugins (mkRdrUnqual)
+import Data.Map (Map)
 
 
 ------------------------------------------------------------------------------
@@ -312,11 +318,26 @@ data Judgement' a = Judgement
 type Judgement = Judgement' CType
 
 
-newtype ExtractM a = ExtractM { unExtractM' :: Strict.StateT Int (Reader Context) a }
-    deriving newtype (Functor, Applicative, Monad, MonadReader Context)
+data UnderlyingState = UnderlyingState
+  { us_unique_name :: Int
+  , us_failureset :: FailureSet
+  }
+  deriving stock (Generic, Data, Typeable)
+
+instance Semigroup UnderlyingState where
+  UnderlyingState a1 b1 <> UnderlyingState a2 b2
+    = UnderlyingState (a1 + a2) (b1 <> b2)
+
+instance Monoid UnderlyingState where
+  mempty = UnderlyingState 0 mempty
+
+
+
+newtype ExtractM a = ExtractM { unExtractM' :: Strict.StateT UnderlyingState (Reader Context) a }
+    deriving newtype (Functor, Applicative, Monad, MonadReader Context, MonadState UnderlyingState)
 
 unExtractM :: ExtractM a -> Reader Context a
-unExtractM = flip Strict.evalStateT 0 . unExtractM'
+unExtractM = flip Strict.evalStateT mempty . unExtractM'
 
 ------------------------------------------------------------------------------
 -- | Orphan instance for producing holes when attempting to solve tactics.
@@ -341,7 +362,7 @@ mkMetaHoleName u = mkRdrUnqual $ mkVarOcc $ "_" <> show u
 
 instance MonadNamedExtract Int (Synthesized (LHsExpr GhcPs)) ExtractM where
   namedHole = do
-    u <- ExtractM $ state $ \ix -> (ix, ix + 1)
+    u <- ExtractM $ state $ \us -> (us_unique_name us, us & #us_unique_name +~ id @Int 1)
     h <- pure . pure . noLoc $ var $ fromString $ occNameString $ occName $ mkMetaHoleName u
     pure (u, h)
 
@@ -362,6 +383,7 @@ data TacticError
   | UnificationError CType CType
   | NoProgress
   | NoApplicableTactic
+  | DebugError String
   | IncorrectDataCon DataCon
   | RecursionOnWrongParam OccName Int OccName
   | UnhelpfulDestruct OccName
@@ -409,6 +431,8 @@ instance Show TacticError where
       "Tried to do something with the out of scope name " <> show name
     show (CantSynthesize ty) =
       "Unable to synthesize a " <> show ty
+    show (DebugError msg) =
+      "Debug error: " <> msg
 
 
 ------------------------------------------------------------------------------
@@ -539,4 +563,41 @@ instance Show UserFacingMessage where
   show TimedOut                = "Wingman timed out while trying to find a solution"
   show NothingToDo             = "Nothing to do"
   show (InfrastructureError t) = "Internal error: " <> T.unpack t
+
+
+newtype HyFinger = HyFinger
+  { unHyFinger :: Set CType
+  }
+  deriving stock (Eq, Ord, Show, Data, Typeable)
+
+hyfIsSubsubsumedBy :: HyFinger -> HyFinger -> Bool
+hyfIsSubsubsumedBy (HyFinger sc1) (HyFinger sc2) = sc1 `S.isSubsetOf` sc2
+
+
+mkFingerprint :: Hypothesis CType -> HyFinger
+mkFingerprint = HyFinger . S.fromList . fmap hi_type . unHypothesis
+
+
+data Failure = Failure
+  { f_fingerprint :: HyFinger
+  , f_progress    :: HyFinger
+  }
+  deriving stock (Eq, Ord, Show, Data, Typeable)
+
+
+newtype FailureSet = FailureSet
+  { unFailureSet :: Map CType [Failure]
+  }
+  deriving stock (Eq, Ord, Show, Data, Typeable)
+  deriving newtype (Semigroup, Monoid)
+
+
+lookupFailure :: FailureSet -> HyFinger -> CType -> Maybe Failure
+lookupFailure fs fing g
+  = join
+  $ fmap (find (\Failure{..} -> fing `hyfIsSubsubsumedBy` f_fingerprint))
+  $ M.lookup g
+  $ unFailureSet fs
+
+
 
