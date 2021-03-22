@@ -108,24 +108,20 @@ fastFail m = do
   fs     <- liftUnderlyingState $ gets us_failureset
   g      <- inspect jGoal
   finger <- inspect jFingerprint
-  case lookupFailure fs finger g of
-    Just _  -> failure $ DebugError "failing fast from a subsumed fingerprint"
-    Nothing -> do
+  case definiteFailure fs finger g of
+    True -> do
+      traceMX "failing fast" (finger, g)
+      failure $ DebugError "failing fast from a subsumed fingerprint"
+    False -> do
+      traceMX "installing handler for " (finger, g)
       handler $ \err ->
         case err of
           CantSynthesize ty -> do
-            #us_failureset %= (addFailure finger g $ S.singleton ty)
+            traceMX "adding failure" (err, finger, g)
+            #us_failureset %= insertFailure finger g
             pure err
-            -- pure err
           _ -> pure err
       m
-
-
-addFailure :: HyFinger -> CType -> Set CType ->  FailureSet -> FailureSet
-addFailure finger g progress fs = undefined -- do
-  -- case lookupFailure fs finger g of
-  --   Just  ->fs
-  --   False -> FailureSet $ fmap _ $ unFailureSet fs
 
 
 liftUnderlyingState :: (forall m. MonadState UnderlyingState m => m a) -> TacticsM a

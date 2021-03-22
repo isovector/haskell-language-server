@@ -55,7 +55,7 @@ import           UniqSupply (takeUniqFromSupply, mkSplitUniqSupply, UniqSupply)
 import           Unique (nonDetCmpUnique, Uniquable, getUnique, Unique)
 import           Wingman.Debug
 import           Wingman.FeatureSet
-import Data.Map (Map)
+import Control.DeepSeq (force, NFData)
 
 
 ------------------------------------------------------------------------------
@@ -118,7 +118,8 @@ instance FromJSON Config where
 ------------------------------------------------------------------------------
 -- | A wrapper around 'Type' which supports equality and ordering.
 newtype CType = CType { unCType :: Type }
-  deriving stock (Data, Typeable)
+  deriving stock (Data, Typeable, Generic)
+  deriving anyclass (NFData)
 
 instance Eq CType where
   (==) = eqType `on` unCType
@@ -568,36 +569,47 @@ instance Show UserFacingMessage where
 newtype HyFinger = HyFinger
   { unHyFinger :: Set CType
   }
-  deriving stock (Eq, Ord, Show, Data, Typeable)
+  deriving stock (Eq, Ord, Show, Data, Typeable, Generic)
+  deriving anyclass (NFData)
 
-hyfIsSubsubsumedBy :: HyFinger -> HyFinger -> Bool
-hyfIsSubsubsumedBy (HyFinger sc1) (HyFinger sc2) = sc1 `S.isSubsetOf` sc2
+hyfIsSubsumedBy :: HyFinger -> HyFinger -> Bool
+hyfIsSubsumedBy (HyFinger sc1) (HyFinger sc2) = sc1 `S.isSubsetOf` sc2
+
+
+hyfIsSubsumedByAny :: HyFinger -> [HyFinger] -> Bool
+hyfIsSubsumedByAny hf hfs = any (flip hyfIsSubsumedBy hf) hfs
 
 
 mkFingerprint :: Hypothesis CType -> HyFinger
 mkFingerprint = HyFinger . S.fromList . fmap hi_type . unHypothesis
 
 
-data Failure = Failure
-  { f_fingerprint :: HyFinger
-  , f_progress    :: HyFinger
-  }
-  deriving stock (Eq, Ord, Show, Data, Typeable)
-
-
 newtype FailureSet = FailureSet
-  { unFailureSet :: Map CType [Failure]
+  { unFailureSet :: Map CType [HyFinger]
   }
-  deriving stock (Eq, Ord, Show, Data, Typeable)
+  deriving stock (Eq, Ord, Show, Data, Typeable, Generic)
   deriving newtype (Semigroup, Monoid)
+  deriving anyclass (NFData)
 
 
-lookupFailure :: FailureSet -> HyFinger -> CType -> Maybe Failure
-lookupFailure fs fing g
-  = join
-  $ fmap (find (\Failure{..} -> fing `hyfIsSubsubsumedBy` f_fingerprint))
+definiteFailure :: FailureSet -> HyFinger -> CType -> Bool
+definiteFailure fs fing g
+  = maybe False (hyfIsSubsumedByAny fing)
   $ M.lookup g
   $ unFailureSet fs
 
 
+insertFailure :: HyFinger -> CType -> FailureSet -> FailureSet
+insertFailure fing g = force . FailureSet . M.insertWith go g (pure fing) . unFailureSet
+  where
+    -- NOTE(sandy): It might not be worth compressing this!
+    go :: [HyFinger] -> [HyFinger] -> [HyFinger]
+    go [new] old =
+      case hyfIsSubsumedByAny new old of
+        True -> old
+        False ->
+          case find (hyfIsSubsumedBy new . snd) $ zip [0..] old of
+            Just (i, _) -> old & ix i .~ new
+            Nothing -> new : old
+    go _ _ = error "insertFailure: impossible!"
 

@@ -341,19 +341,20 @@ auto' 0 = goal >>= cantSynthesize
 auto' n = do
   let loop = auto' (n - 1)
   try intros
-  commit
-    (choice
-      [ overFunctions $ \fname -> do
-          apply fname
-          loop
-      , overAlgebraicTerms $ \aname -> do
-          destructAuto aname
-          loop
-      , splitAuto >> loop
-      , assumption >> loop
-      , recursion
-      ])
-    $ goal >>= cantSynthesize
+  fastFail $
+    commit
+      (choice
+        [ overFunctions $ \fname -> do
+            apply fname
+            loop
+        , overAlgebraicTerms $ \aname -> do
+            destructAuto aname
+            loop
+        , splitAuto >> loop
+        , assumption >> loop
+        , recursion
+        ])
+      $ goal >>= cantSynthesize
 
 overFunctions :: (HyInfo CType -> TacticsM ()) -> TacticsM ()
 overFunctions =
