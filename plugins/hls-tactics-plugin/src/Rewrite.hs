@@ -740,9 +740,59 @@ monadState _ =
   )
 
 
-test :: ([Either String Term], Int)
-test =
-  flip runState 999 $ runTactic2 (0 :: Int) testJdg $ do
-    commit (put 5) (pure ())
-    get >>= mkResult
+subme :: Functor m => TacticT jdg Term err s m ()
+subme = rule $ pure Hole
+
+test :: IO ()
+test = fix $ \me -> do
+  y <- generate $ resize 10 arbitrary
+  let x :: TacticT Judgement Term String [Bool] (State Int) ()
+      x = y
+
+  let a = flip runState 0 $ runTactic2 [True] testJdg $
+            commit x empty
+      b = flip runState 0 $ runTactic2 [True] testJdg x
+
+  if (a == b)
+     then do
+       putStrLn "----------------------------------"
+       me
+     else do
+       putStrLn "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+       print y
+
+testBetter :: IO ()
+testBetter = do
+  let fun1 :: Term -> ProofState Term String [Bool] (StateT Int Identity) ()
+      fun1 = const $ Alt Empty (Effect $ put 4 >> pure (pure ()))
+
+      fun2 :: StateT Int Identity (ProofState Term String [Bool] (State Int) (()))
+      fun2 = put 1 >> pure (pure ())
+
+      x :: TacticT Judgement Term String [Bool] (State Int) ()
+      x = TacticT $ lift $ do
+            Alt (Subgoal () fun1) (Effect fun2)
+
+  let a = flip runState 0 $ runTactic2 [True] testJdg $
+            commit x empty
+      b = flip runState 0 $ runTactic2 [True] testJdg x
+  print a
+  print b
+
+  {-
+
+----------------------------------
+beginning effect ----
+put 1
+()
+---effect: <Fun>
+cont: Alt Empty (Effect <Fun>)
+beginning effect ----
+put 4
+()
+---effect: <Fun>
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Alt (Subgoal ((),:- [] (TVar [])) <Fun>) (Effect <Fun>)
+
+    -}
 
