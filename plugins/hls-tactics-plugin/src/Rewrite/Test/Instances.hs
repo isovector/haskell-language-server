@@ -10,6 +10,15 @@ import Test.QuickCheck hiding (Result)
 import Test.QuickCheck.Checkers
 import Data.Functor.Identity
 import Data.Data (Typeable, eqT, (:~:) (Refl))
+import Debug.RecoverRTTI (anythingToString)
+import Data.Function (on)
+
+instance Eq (TacticT jdg ext err s m a) where
+  (==) = (==) `on` anythingToString
+
+instance Ord (TacticT jdg ext err s m a) where
+  compare = compare `on` anythingToString
+
 
 instance CoArbitrary Judgement where
   coarbitrary (hy :- g) = coarbitrary (hy, g)

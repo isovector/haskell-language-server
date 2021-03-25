@@ -36,7 +36,7 @@ data Term
   | Hole
   | Lam String Term
   | Pair Term Term
-  deriving stock (Show, Eq, Generic)
+  deriving stock (Show, Eq, Generic, Ord)
 
 
 -- The type part of simply typed lambda calculus
@@ -44,7 +44,7 @@ data Type
   = TVar String
   | Type :-> Type
   | TPair Type Type
-  deriving stock (Show, Eq, Generic)
+  deriving stock (Show, Eq, Generic, Ord)
 
 infixr 4 :->
 
@@ -54,7 +54,7 @@ instance IsString Type where
 
 -- A judgement is just a context, along with a goal
 data Judgement = [(String, Type)] :- Type
-  deriving stock (Show, Eq, Generic)
+  deriving stock (Show, Eq, Generic, Ord)
 
 auto :: Functor m => TacticT Judgement Term String s m ()
 auto = do
