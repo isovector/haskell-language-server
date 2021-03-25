@@ -29,7 +29,7 @@ import Data.Data (Typeable, eqT, (:~:) (Refl))
 import Test.Hspec
 import Test.Hspec.QuickCheck (prop)
 import Debug.RecoverRTTI
-import Debug.Trace (traceM)
+import Debug.Trace (traceM, trace)
 
 
 data ProofState ext err s m a where
@@ -282,38 +282,38 @@ instance Applicative m => MonadExtract m Term where
 
 
 kill
-    :: Monad m
+    :: (Monad m, MonadExtract m ext)
     => s
-    -> (a -> (ext -> m r) -> m r)
+    -> (a -> (ext -> ProofState ext err s m a) -> m r)
     -> (ext -> m r)
     -> m r
     -> (s -> err -> m r)
     -> (m r -> m r -> m r)
     -> ProofState ext err s m a
     -> m r
-kill s bind ok cut raise keep (Subgoal a k) = do
-  bind a $ kill s bind ok cut raise keep . k
+kill s sub ok cut raise keep (Subgoal a k) = do
+  sub a k
 
-kill s bind ok cut raise keep (Effect m) =
-  m >>= kill s bind ok cut raise keep
+kill s sub ok cut raise keep (Effect m) =
+  m >>= kill s sub ok cut raise keep
 
-kill s bind ok cut raise keep (Stateful m) =
+kill s sub ok cut raise keep (Stateful m) =
   let (s', t) = m s
-   in kill s' bind ok cut raise keep t
+   in kill s' sub ok cut raise keep t
 
-kill s bind ok cut raise keep (Alt t1 t2) =
-  keep (kill s bind ok cut raise keep t1)
-       (kill s bind ok cut raise keep t2)
+kill s sub ok cut raise keep (Alt t1 t2) =
+  keep (kill s sub ok cut raise keep t1)
+       (kill s sub ok cut raise keep t2)
 
-kill s bind ok cut raise keep (Interleave t1 t2) =
+kill s sub ok cut raise keep (Interleave t1 t2) =
   -- TODO(sandy): for now
-  keep (kill s bind ok cut raise keep t1)
-       (kill s bind ok cut raise keep t2)
+  keep (kill s sub ok cut raise keep t1)
+       (kill s sub ok cut raise keep t2)
 
-kill s bind ok cut raise keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
+kill s sub ok cut raise keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
   let kill_as_proofstate t =
         kill s
-          (\ext k' -> pure $ Subgoal ext $ fmap Effect k')
+          (\a k' -> pure $ Subgoal a k')
           (pure . Axiom)
           (pure Empty)
           (\s err -> pure $ put s >> Throw err)
@@ -321,22 +321,21 @@ kill s bind ok cut raise keep (Commit (t1 :: ProofState ext err s m x) t2 k) = d
           t
   (x1 :: ProofState ext err s m x) <-
     kill_as_proofstate t1
-  let run_t2 bind' ok' cut' raise keep' = do
+  let run_t2 sub' ok' cut' raise keep' = do
         (x2 :: ProofState ext err s m x) <-
           kill_as_proofstate t2
-        kill s bind' ok' cut' raise keep' $ k =<< x2
+        kill s sub' ok' cut' raise keep' $ k =<< x2
 
-  -- TODO(sandy): ok to ignore k' here?
-  kill s (\x k' -> kill s bind ok cut raise keep $ k x) ok
-    (run_t2 bind ok cut raise keep)
-    (\s' err -> run_t2 bind ok (raise s' err) raise keep) keep $ x1
+  kill s (\x k' -> kill s sub ok cut raise keep $ Subgoal x k' >>= k) ok
+    (run_t2 sub ok cut raise keep)
+    (\s' err -> run_t2 sub ok (raise s' err) raise keep) keep $ x1
 
 kill _ _ _ cut _ _ Empty = cut
 
-kill s bind ok cut raise keep (Handle t h k)
-  = let bind' = \x k' -> kill s bind ok cut raise keep $ k x
-     in kill s bind' ok cut
-          (\s' err -> kill s' bind' ok cut raise keep $ h err) keep t
+kill s sub ok cut raise keep (Handle t h k)
+  = let sub' = \x k' -> kill s sub ok cut raise keep $ Subgoal x k' >>= k
+     in kill s sub' ok cut
+          (\s' err -> kill s' sub' ok cut raise keep $ h err) keep t
 
 kill s _ _ _ raise _ (Throw err) = raise s err
 
@@ -368,7 +367,7 @@ proof s =
 proof2 :: (Monad m, MonadExtract m ext) => s -> ProofState Term err s m Judgement -> m [Either err Term]
 proof2 s =
   kill s
-    (const $ \f -> f =<< hole)
+    (\_ x -> proof2 s $ x =<< hole)
     (pure . pure . Right)
     (do
         -- !_ <- traceM "hit the empty ctor"
@@ -427,7 +426,7 @@ auto = do
 
 
 testJdg :: Judgement
-testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" (TPair "b" "c")
+testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" "b"
 
 instance Semigroup Judgement where
   (<>) = error "no semigroup"
@@ -598,9 +597,13 @@ spec = do
     ((put s >> empty) `commit` t)
       =-= t
 
-  prop "alt takes handling preference over throw" $ \e f ->
-    (catch (throw e <|> pure ()) f)
+  prop "commit takes handling preference over throw" $ \e f ->
+    (catch (throw e `commit` pure ()) f)
       =-= (pure () :: TT)
+
+  prop "catch distributs across alt" $ \t1 t2 f ->
+    (catch (t1 <|> t2) f)
+      =-= (catch t1 f <|> catch t2 f :: TT)
 
   prop "commit a rule always succeeds" $ \r t ->
     ((commit (rule r) t) :: TT)
@@ -617,6 +620,10 @@ spec = do
   prop "commit runs its continuation" $ \(i :: Int) (t :: TI) f ->
     ((commit (pure i) t >> f) :: TT)
       =-= f
+
+  prop "this is the broken commit test" $ \(t1 :: TI) t2 (t3 :: Int -> TT) ->
+      ((commit t1 t2) >>= t3)
+        =-= ((t1 >>= t3) `commit` (t2 >>= t3))
 
 
 
@@ -644,6 +651,7 @@ main = hspec spec
     -- quickCheck $ property $ \(t1 :: TI) t2 (t3 :: TT) ->
     --   (t1 >> (t2 <|> t3))
     --     =-= ((t1 >> t2) <|> (t1 >> t3))
+
     -- -- should fail! this is the broken commit test
     -- quickCheck $ property $ \(t1 :: TI) t2 (t3 :: Int -> TT) ->
     --   ((commit t1 t2) >>= t3)
@@ -703,5 +711,5 @@ monadState _ =
 test :: [Either String Term]
 test =
   runIdentity $ runTactic2 (0 :: Int) testJdg $ do
-    commit pair (throw "no")
+    catch (throw "hmm" <|> pure ()) mkResult
 
