@@ -47,6 +47,10 @@ library
     Wingman.Tactics
     Wingman.Types
 
+    Rewrite
+    Rewrite.Test.Spec
+    Rewrite.Test.Instances
+
   ghc-options:
     -Wall -Wno-name-shadowing -Wredundant-constraints -Wno-unticked-promoted-constructors
   if flag(pedantic)
