@@ -31,7 +31,6 @@ import Data.Data (Typeable, eqT, (:~:) (Refl))
 import Test.Hspec
 import Test.Hspec.QuickCheck (prop)
 import Debug.RecoverRTTI
-import Debug.Trace (traceM, trace)
 
 
 data ProofState ext err s m a where
@@ -299,58 +298,63 @@ kill
     -> (ext -> m r)
     -> m r
     -> (s -> err -> m r)
+    -> (m (m r) -> m r)
     -> (m r -> m r -> m r)
     -> ProofState ext err s m a
     -> m r
-kill s sub _ _ _ _ (Subgoal a k) = do
+kill s sub _ _ _ _ _ (Subgoal a k) = do
   sub s a k
 
-kill s sub ok cut raise keep (Effect m) =
-  m >>= kill s sub ok cut raise keep
+kill s sub ok cut raise eff keep (Effect m) = do
+  eff $ fmap (kill s sub ok cut raise eff keep) m
 
-kill s sub ok cut raise keep (Stateful m) =
+kill s sub ok cut raise eff keep (Stateful m) =
   let (s', t) = m s
-   in kill s' sub ok cut raise keep t
+   in kill s' sub ok cut raise eff keep t
 
-kill s sub ok cut raise keep (Alt t1 t2) =
-  keep (kill s sub ok cut raise keep t1)
-       (kill s sub ok cut raise keep t2)
+kill s sub ok cut raise eff keep (Alt t1 t2) =
+  keep (kill s sub ok cut raise eff keep t1)
+       (kill s sub ok cut raise eff keep t2)
 
-kill s sub ok cut raise keep (Interleave t1 t2) =
+kill s sub ok cut raise eff keep (Interleave t1 t2) =
   -- TODO(sandy): for now
-  keep (kill s sub ok cut raise keep t1)
-       (kill s sub ok cut raise keep t2)
+  keep (kill s sub ok cut raise eff keep t1)
+       (kill s sub ok cut raise eff keep t2)
 
-kill s sub ok cut raise keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
+kill s sub ok cut raise eff keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
   let kill_as_proofstate t =
         kill s
           (\s' a k' -> pure $ put s' >> Subgoal a k')
           (pure . Axiom)
           (pure Empty)
           (\s' err -> pure $ put s' >> Throw err)
+          (pure . Effect . join)
           (liftA2 (<|>))
           t
   (x1 :: ProofState ext err s m x) <-
     kill_as_proofstate t1
-  let run_t2 sub' ok' cut' raise keep' = do
+  let run_t2 sub' ok' cut' raise eff' keep' = do
         (x2 :: ProofState ext err s m x) <-
           kill_as_proofstate t2
-        kill s sub' ok' cut' raise keep' $ k =<< x2
+        kill s sub' ok' cut' raise eff' keep' $ k =<< x2
 
-  kill s (\s' x k' -> kill s' sub ok cut raise keep $ Subgoal x k' >>= k) ok
-    (run_t2 sub ok cut raise keep)
-    (\s' err -> run_t2 sub ok (raise s' err) raise keep) keep $ x1
+      sub' = (\s' x k' -> kill s' sub ok cut raise eff keep $ Subgoal x k' >>= k)
 
-kill _ _ _ cut _ _ Empty = cut
+  kill s sub' ok
+               (run_t2 sub ok cut            raise eff keep)
+    (\s' err -> run_t2 sub ok (raise s' err) raise eff keep)
+    eff keep x1
 
-kill s sub ok cut raise keep (Handle t h k)
-  = let sub' = \s' x k' -> kill s' sub ok cut raise keep $ Subgoal x k' >>= k
+kill _ _ _ cut _ _ _ Empty = cut
+
+kill s sub ok cut raise eff keep (Handle t h k)
+  = let sub' = \s' x k' -> kill s' sub ok cut raise eff keep $ Subgoal x k' >>= k
      in kill s sub' ok cut
-          (\s' err -> kill s' sub' ok cut raise keep $ h err) keep t
+          (\s' err -> kill s' sub' ok cut raise eff keep $ h err) eff keep t
 
-kill s _ _ _ raise _ (Throw err) = raise s err
+kill s _ _ _ raise _ _ (Throw err) = raise s err
 
-kill _ _ ok _ _ _ (Axiom ext) = ok ext
+kill _ _ ok _ _ _ _ (Axiom ext) = ok ext
 
 
 
@@ -366,26 +370,24 @@ instance EqProp Term
 instance EqProp Judgement
 instance EqProp Type
 
-proof :: Monad m => s -> ProofState Term err s m jdg -> m [Result jdg err Term]
+proof :: Monad m => s -> ProofState Term err s m a -> m [Result jdg err Term]
 proof s =
   kill s
     ( \s' _ x -> proof s' $ x =<< hole)
     (pure . pure . Extract)
     (pure [])
     (const $ pure . pure . ErrorResult)
+    join
     (liftA2 (<>))
 
-proof2 :: (Monad m, MonadExtract m ext) => s -> ProofState Term err s m Judgement -> m [Either err Term]
+proof2 :: (Monad m, MonadExtract m ext) => s -> ProofState Term err s m a -> m [Either err Term]
 proof2 s =
   kill s
     (\s' _ x -> proof2 s' $ x =<< hole)
     (pure . pure . Right)
-    (do
-        -- !_ <- traceM "hit the empty ctor"
-        pure [])
-    (const $ \err -> do
-      -- !_ <- traceM "hit the error ctor"
-      pure . pure $ Left err)
+    (pure [])
+    (const $ pure . pure . Left)
+    join
     (liftA2 (<>))
 
 
@@ -535,7 +537,7 @@ instance ( Arbitrary s
          ) => EqProp (ProofState Term err s m a) where
   a =-= b = property $ do
     s <- arbitrary @s
-    pure $ proof @m s a =-= proof s b
+    pure $ proof @m @_ @_ @_ @a s a =-= proof s b
 
 instance ( Arbitrary s
          , Arbitrary jdg
