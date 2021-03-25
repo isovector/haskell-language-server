@@ -22,7 +22,7 @@ import Data.List (find)
 import Test.QuickCheck hiding (Result)
 import Test.QuickCheck.Checkers
 import Data.Functor.Identity
-import Test.QuickCheck.Classes ()
+import Test.QuickCheck.Classes
 import GHC.Generics (Generic)
 import Data.Tuple (swap)
 import Data.Data (Typeable, eqT, (:~:) (Refl))
@@ -284,15 +284,15 @@ instance Applicative m => MonadExtract m Term where
 kill
     :: (Monad m, MonadExtract m ext)
     => s
-    -> (a -> (ext -> ProofState ext err s m a) -> m r)
+    -> (s -> a -> (ext -> ProofState ext err s m a) -> m r)
     -> (ext -> m r)
     -> m r
     -> (s -> err -> m r)
     -> (m r -> m r -> m r)
     -> ProofState ext err s m a
     -> m r
-kill s sub ok cut raise keep (Subgoal a k) = do
-  sub a k
+kill s sub _ _ _ _ (Subgoal a k) = do
+  sub s a k
 
 kill s sub ok cut raise keep (Effect m) =
   m >>= kill s sub ok cut raise keep
@@ -313,10 +313,10 @@ kill s sub ok cut raise keep (Interleave t1 t2) =
 kill s sub ok cut raise keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
   let kill_as_proofstate t =
         kill s
-          (\a k' -> pure $ Subgoal a k')
+          (\s' a k' -> pure $ put s' >> Subgoal a k')
           (pure . Axiom)
           (pure Empty)
-          (\s err -> pure $ put s >> Throw err)
+          (\s' err -> pure $ put s' >> Throw err)
           (liftA2 (<|>))
           t
   (x1 :: ProofState ext err s m x) <-
@@ -326,14 +326,14 @@ kill s sub ok cut raise keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
           kill_as_proofstate t2
         kill s sub' ok' cut' raise keep' $ k =<< x2
 
-  kill s (\x k' -> kill s sub ok cut raise keep $ Subgoal x k' >>= k) ok
+  kill s (\s' x k' -> kill s' sub ok cut raise keep $ Subgoal x k' >>= k) ok
     (run_t2 sub ok cut raise keep)
     (\s' err -> run_t2 sub ok (raise s' err) raise keep) keep $ x1
 
 kill _ _ _ cut _ _ Empty = cut
 
 kill s sub ok cut raise keep (Handle t h k)
-  = let sub' = \x k' -> kill s sub ok cut raise keep $ Subgoal x k' >>= k
+  = let sub' = \s' x k' -> kill s' sub ok cut raise keep $ Subgoal x k' >>= k
      in kill s sub' ok cut
           (\s' err -> kill s' sub' ok cut raise keep $ h err) keep t
 
@@ -358,7 +358,7 @@ instance EqProp Type
 proof :: Monad m => s -> ProofState Term err s m jdg -> m [Result jdg err Term]
 proof s =
   kill s
-    (undefined)
+    ( \s' _ x -> proof s' $ x =<< hole)
     (pure . pure . Extract)
     (pure [])
     (const $ pure . pure . ErrorResult)
@@ -367,7 +367,7 @@ proof s =
 proof2 :: (Monad m, MonadExtract m ext) => s -> ProofState Term err s m Judgement -> m [Either err Term]
 proof2 s =
   kill s
-    (\_ x -> proof2 s $ x =<< hole)
+    (\s' _ x -> proof2 s' $ x =<< hole)
     (pure . pure . Right)
     (do
         -- !_ <- traceM "hit the empty ctor"
@@ -500,9 +500,9 @@ instance  ( Arbitrary a
       in sized $ \n -> case n <= 1 of
            True  -> oneof terminal
            False -> oneof $
-            [ SubgoalR <$> arbitrary <*> scale (subtract 1) arbitrary
-            , EffectR <$> scale (subtract 1) arbitrary
-            , StatefulR <$> scale (subtract 1) arbitrary
+            [ SubgoalR <$> arbitrary <*> scale (flip div 2) arbitrary
+            , EffectR <$> scale (flip div 2) arbitrary
+            , StatefulR <$> scale (flip div 2) arbitrary
             ] <> terminal
 
 instance ( Arbitrary s
@@ -614,48 +614,44 @@ spec = do
       =-= (m >> throw err)
 
   prop "commit of pure" $ \(i :: Int) (t :: TI) ->
-    (commit (pure i) t)
-      =-= pure i
+    (commit (pure i) t >>= mkResult)
+      =-= mkResult i
 
   prop "commit runs its continuation" $ \(i :: Int) (t :: TI) f ->
     ((commit (pure i) t >> f) :: TT)
       =-= f
 
-  prop "this is the broken commit test" $ \(t1 :: TI) t2 (t3 :: Int -> TT) ->
-      ((commit t1 t2) >>= t3)
-        =-= ((t1 >>= t3) `commit` (t2 >>= t3))
+  prop "committing a hole keeps state" $ \s (t :: TT) ->
+    (commit (put s) t >> get >>= mkResult)
+      =-= (put s >> get >>= mkResult)
+
+--   prop "this is the broken commit test" $ \(t1 :: TI) t2 (t3 :: Int -> TT) ->
+--       ((commit t1 t2) >>= t3)
+--         =-= ((t1 >>= t3) `commit` (t2 >>= t3))
 
 
 
 main :: IO ()
-main = hspec spec
-    -- quickBatch $ functor     (undefined :: ProofStateTest (Int, Int, Int))
-    -- quickBatch $ applicative (undefined :: ProofStateTest (Int, Int, Int))
-    -- quickBatch $ alternative (undefined :: ProofStateTest Int)
-    -- quickBatch $ monad       (undefined :: ProofStateTest (Int, Int, Int))
-    -- quickBatch $ monadPlus   (undefined :: ProofStateTest (Int, Int))
-    -- quickBatch $ monadState  (undefined :: ProofStateTest (Int, Int))
+main = do
+  hspec spec
 
-    -- quickBatch $ functor     (undefined :: RuleTest (Term, Term, Term))
-    -- quickBatch $ applicative (undefined :: RuleTest (Term, Term, Term))
-    -- quickBatch $ monad       (undefined :: RuleTest (Term, Term, Term))
-    -- -- quickBatch $ monadState  (undefined :: RuleTest (Term, Term))
+--   quickBatch $ functor     (undefined :: ProofStateTest (Int, Int, Int))
+--   quickBatch $ applicative (undefined :: ProofStateTest (Int, Int, Int))
+--   quickBatch $ alternative (undefined :: ProofStateTest Int)
+--   quickBatch $ monad       (undefined :: ProofStateTest (Int, Int, Int))
+--   quickBatch $ monadPlus   (undefined :: ProofStateTest (Int, Int))
+--   quickBatch $ monadState  (undefined :: ProofStateTest (Int, Int))
 
---     quickBatch $ functor     (undefined :: TacticTest ((), (), ()))
---     quickBatch $ applicative (undefined :: TacticTest ((), (), ()))
---     quickBatch $ alternative (undefined :: TacticTest ())
---     quickBatch $ monad       (undefined :: TacticTest ((), (), ()))
---     quickBatch $ monadPlus   (undefined :: TacticTest ((), ()))
---     quickBatch $ monadState  (undefined :: TacticTest ((), ()))
-    -- -- fails, m1 could be lift, then you do an action twice in the second case
-    -- quickCheck $ property $ \(t1 :: TI) t2 (t3 :: TT) ->
-    --   (t1 >> (t2 <|> t3))
-    --     =-= ((t1 >> t2) <|> (t1 >> t3))
+--   quickBatch $ functor     (undefined :: RuleTest (Term, Term, Term))
+--   quickBatch $ applicative (undefined :: RuleTest (Term, Term, Term))
+--   quickBatch $ monad       (undefined :: RuleTest (Term, Term, Term))
 
-    -- -- should fail! this is the broken commit test
-    -- quickCheck $ property $ \(t1 :: TI) t2 (t3 :: Int -> TT) ->
-    --   ((commit t1 t2) >>= t3)
-    --     =-= ((t1 >>= t3) `commit` (t2 >>= t3))
+--   quickBatch $ functor     (undefined :: TacticTest ((), (), ()))
+--   quickBatch $ applicative (undefined :: TacticTest ((), (), ()))
+--   quickBatch $ alternative (undefined :: TacticTest ())
+--   quickBatch $ monad       (undefined :: TacticTest ((), (), ()))
+--   quickBatch $ monadPlus   (undefined :: TacticTest ((), ()))
+--   quickBatch $ monadState  (undefined :: TacticTest ((), ()))
 
 
 mkResult :: Show a => a -> TT
@@ -711,5 +707,6 @@ monadState _ =
 test :: [Either String Term]
 test =
   runIdentity $ runTactic2 (0 :: Int) testJdg $ do
-    catch (throw "hmm" <|> pure ()) mkResult
+    commit (put 5) (pure ())
+    get >>= mkResult
 
