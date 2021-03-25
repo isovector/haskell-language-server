@@ -130,7 +130,7 @@ instance (CoArbitrary s, Arbitrary a, Arbitrary s) => Arbitrary (State s a) wher
 
 instance ( Arbitrary s
          , Monad m
-         , EqProp (m [Result jdg err ext])
+         , EqProp (m [Result s jdg err ext])
          , MonadExtract ext m
          ) => EqProp (ProofState ext err s m jdg) where
   a =-= b = property $ do
@@ -145,7 +145,7 @@ instance ( Monad m
 instance ( Arbitrary s
          , Monad m
          , Arbitrary jdg
-         , EqProp (m [Result jdg err Term])
+         , EqProp (m [Result s jdg err Term])
          ) => EqProp (TacticT jdg Term err s m a) where
   a =-= b = property $ do
     s <- arbitrary @s
@@ -155,7 +155,7 @@ instance ( Arbitrary s
 instance {-# OVERLAPPING #-}
          ( Arbitrary s
          , Monad m
-         , EqProp (m [Either err Term])
+         , EqProp (m [Either err (s, Term)])
          ) => EqProp (TacticT Judgement Term err s m a) where
   a =-= b = property $ do
     s <- arbitrary @s
@@ -181,7 +181,7 @@ instance Show a => Show (StateT Int Identity a) where
 instance Arbitrary Judgement where
   arbitrary = (:-) <$> scale (flip div 3) arbitrary <*> scale (flip div 2) arbitrary
 
-instance (EqProp jdg, EqProp err, EqProp ext) => EqProp (Result jdg err ext)
+instance (EqProp s, EqProp jdg, EqProp err, EqProp ext) => EqProp (Result s jdg err ext)
 instance EqProp Term
 instance EqProp Judgement
 instance EqProp Type

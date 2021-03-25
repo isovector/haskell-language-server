@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Rewrite.Test.STLC where
@@ -13,17 +15,17 @@ import GHC.Generics (Generic)
 instance Applicative m => MonadExtract Term m where
   hole = pure Hole
 
-proof2 :: Monad m => s -> ProofState Term err s m a -> m [Either err Term]
+proof2 :: Monad m => s -> ProofState Term err s m a -> m [Either err (s, Term)]
 proof2 s =
   kill s
     (\s' _ x -> proof2 s' $ x =<< hole)
-    (pure . pure . Right)
+    (\s -> pure . pure . Right . (s, ))
     (pure [])
     (const $ pure . pure . Left)
     join
     (liftA2 (<>))
 
-runTactic2 :: Monad m => s -> Judgement -> TacticT Judgement Term err s m a -> m [Either err Term]
+runTactic2 :: Monad m => s -> Judgement -> TacticT Judgement Term err s m a -> m [Either err (s, Term)]
 runTactic2 s jdg (TacticT m) = proof2 s $ execStateT m jdg
 
 

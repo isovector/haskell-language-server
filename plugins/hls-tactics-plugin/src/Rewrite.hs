@@ -232,7 +232,7 @@ kill
     :: (Monad m, MonadExtract ext m)
     => s
     -> (s -> a -> (ext -> ProofState ext err s m a) -> m r)
-    -> (ext -> m r)
+    -> (s -> ext -> m r)
     -> m r
     -> (s -> err -> m r)
     -> (m (m r) -> m r)
@@ -262,7 +262,7 @@ kill s sub ok cut raise eff keep (Commit (t1 :: ProofState ext err s m x) t2 k) 
   let kill_as_proofstate t =
         kill s
           (\s' a k' -> pure $ put s' >> Subgoal a k')
-          (pure . Axiom)
+          (\s ext -> pure $ put s >> Axiom ext)
           (pure Empty)
           (\s' err -> pure $ put s' >> Throw err)
           (pure . Effect . join)
@@ -291,29 +291,29 @@ kill s sub ok cut raise eff keep (Handle t h k)
 
 kill s _ _ _ raise _ _ (Throw err) = raise s err
 
-kill _ _ ok _ _ _ _ (Axiom ext) = ok ext
+kill s _ ok _ _ _ _ (Axiom ext) = ok s ext
 
 
-data Result jdg err ext
+data Result s jdg err ext
   = HoleResult jdg
   | ErrorResult err
-  | Extract ext
+  | Extract s ext
   | NoResult
   deriving stock (Show, Generic)
 
 
-proof :: (MonadExtract ext m , Monad m) => s -> ProofState ext err s m jdg -> m [Result jdg err ext]
+proof :: (MonadExtract ext m , Monad m) => s -> ProofState ext err s m jdg -> m [Result s jdg err ext]
 proof s =
   kill s
-    ( \s' _ x -> proof s' $ x =<< lift hole)
-    (pure . pure . Extract)
+    (\s' _ x -> proof s' $ x =<< lift hole)
+    (\s -> pure . pure . Extract s)
     (pure [])
     (const $ pure . pure . ErrorResult)
     join
     (liftA2 (<>))
 
 
-runTactic :: (MonadExtract ext m, Monad m) => s -> jdg -> TacticT jdg ext err s m a -> m [Result jdg err ext]
+runTactic :: (MonadExtract ext m, Monad m) => s -> jdg -> TacticT jdg ext err s m a -> m [Result s jdg err ext]
 runTactic s jdg (TacticT m) = proof s $ execStateT m jdg
 
 
