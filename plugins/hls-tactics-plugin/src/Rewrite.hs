@@ -76,6 +76,12 @@ newtype TacticT jdg ext err s m a = TacticT
   { unTacticT :: StateT jdg (ProofState ext err s m) a
   } deriving newtype (Functor, Applicative, Monad, Alternative, MonadPlus)
 
+instance MonadTrans (Rule jdg ext err s) where
+  lift ma = EffectR $ fmap pure ma
+
+instance MonadTrans (ProofState ext err s) where
+  lift ma = Effect $ fmap pure ma
+
 instance MonadTrans (TacticT jdg ext err s) where
   lift ma = TacticT $ StateT $ \jdg -> fmap (, jdg) $ Effect $ fmap pure ma
 
@@ -740,59 +746,12 @@ monadState _ =
   )
 
 
-subme :: Functor m => TacticT jdg Term err s m ()
-subme = rule $ pure Hole
-
-test :: IO ()
-test = fix $ \me -> do
-  y <- generate $ resize 10 arbitrary
-  let x :: TacticT Judgement Term String [Bool] (State Int) ()
-      x = y
-
-  let a = flip runState 0 $ runTactic2 [True] testJdg $
-            commit x empty
-      b = flip runState 0 $ runTactic2 [True] testJdg x
-
-  if (a == b)
-     then do
-       putStrLn "----------------------------------"
-       me
-     else do
-       putStrLn "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-       print y
-
 testBetter :: IO ()
 testBetter = do
-  let fun1 :: Term -> ProofState Term String [Bool] (StateT Int Identity) ()
-      fun1 = const $ Alt Empty (Effect $ put 4 >> pure (pure ()))
+  let x :: TacticT Judgement Term String [Bool] IO ()
+      x = (rule $ subgoal mempty <* lift (putStrLn "left"))
+            <|> lift (putStrLn "right")
 
-      fun2 :: StateT Int Identity (ProofState Term String [Bool] (State Int) (()))
-      fun2 = put 1 >> pure (pure ())
-
-      x :: TacticT Judgement Term String [Bool] (State Int) ()
-      x = TacticT $ lift $ do
-            Alt (Subgoal () fun1) (Effect fun2)
-
-  let a = flip runState 0 $ runTactic2 [True] testJdg $
-            commit x empty
-      b = flip runState 0 $ runTactic2 [True] testJdg x
-  print a
-  print b
-
-  {-
-
-----------------------------------
-beginning effect ----
-put 1
-()
----effect: <Fun>
-cont: Alt Empty (Effect <Fun>)
-beginning effect ----
-put 4
-()
----effect: <Fun>
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-Alt (Subgoal ((),:- [] (TVar [])) <Fun>) (Effect <Fun>)
-
-    -}
+  print =<< runTactic2 [True] testJdg (commit x empty)
+  print =<< runTactic2 [True] testJdg x
 
