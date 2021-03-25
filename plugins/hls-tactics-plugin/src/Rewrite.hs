@@ -7,6 +7,7 @@
 {-# LANGUAGE StandaloneDeriving                 #-}
 {-# LANGUAGE TupleSections                      #-}
 {-# LANGUAGE UndecidableInstances               #-}
+{-# OPTIONS_GHC -fno-warn-orphans               #-}
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults         #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports        #-}
@@ -15,6 +16,7 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 module Rewrite where
 
+import Data.Foldable
 import Control.Monad.State.Strict
 import GHC.Exts
 import Control.Applicative
@@ -73,6 +75,9 @@ data ProofState ext err s m a where
 newtype TacticT jdg ext err s m a = TacticT
   { unTacticT :: StateT jdg (ProofState ext err s m) a
   } deriving newtype (Functor, Applicative, Monad, Alternative, MonadPlus)
+
+instance MonadTrans (TacticT jdg ext err s) where
+  lift ma = TacticT $ StateT $ \jdg -> fmap (, jdg) $ Effect $ fmap pure ma
 
 data Rule jdg ext err s m a where
   Pure
@@ -505,6 +510,19 @@ instance  ( Arbitrary a
             , StatefulR <$> scale (flip div 2) arbitrary
             ] <> terminal
 
+instance (Arbitrary s, EqProp s, EqProp a) => EqProp (State s a) where
+  a =-= b = property $ do
+    s <- arbitrary
+    pure $ runState a s =-= runState b s
+
+instance (CoArbitrary s, Arbitrary a, Arbitrary s) => Arbitrary (State s a) where
+  arbitrary = oneof
+    [ pure <$> arbitrary
+    , (>>) <$> (fmap put arbitrary) <*> scale (flip div 2) arbitrary
+    , (>>=) <$> pure get <*> scale (flip div 2) arbitrary
+    ]
+
+
 instance ( Arbitrary s
          , Monad m
          , EqProp (m [Result a err Term])
@@ -553,12 +571,15 @@ instance Arbitrary Type where
                     <*> scale (flip div 2) arbitrary
             ] <> terminal
 
+instance Show a => Show (StateT Int Identity a) where
+  show = show . flip runState 999
+
 instance Arbitrary Judgement where
   arbitrary = (:-) <$> scale (flip div 3) arbitrary <*> scale (flip div 2) arbitrary
 
-type ProofStateTest = ProofState Term String Int Identity
-type TacticTest = TacticT Judgement Term String Int Identity
-type RuleTest = Rule Judgement Term String Int Identity
+type ProofStateTest = ProofState Term String Int (State Int)
+type TacticTest = TacticT Judgement Term String Int (State Int)
+type RuleTest = Rule Judgement Term String Int (State Int)
 
 spec :: Spec
 spec = do
@@ -597,9 +618,9 @@ spec = do
     ((put s >> empty) `commit` t)
       =-= t
 
-  prop "commit takes handling preference over throw" $ \e f ->
-    (catch (throw e `commit` pure ()) f)
-      =-= (pure () :: TT)
+  prop "commit takes handling preference over throw" $ \e f (i :: Int) ->
+    (catch (throw e `commit` mkResult i) f)
+      =-= mkResult i
 
   prop "catch distributs across alt" $ \t1 t2 f ->
     (catch (t1 <|> t2) f)
@@ -625,33 +646,48 @@ spec = do
     (commit (put s) t >> get >>= mkResult)
       =-= (put s >> get >>= mkResult)
 
---   prop "this is the broken commit test" $ \(t1 :: TI) t2 (t3 :: Int -> TT) ->
---       ((commit t1 t2) >>= t3)
---         =-= ((t1 >>= t3) `commit` (t2 >>= t3))
+  prop "effect works properly" $
+    expectFailure $ \(e :: State Int ()) (t :: TT) ->
+      (lift e >> t) =-= t
 
+  prop "this is the broken commit test" $
+    expectFailure $ \(t1 :: TI) t2 (t3 :: Int -> TT) ->
+      (commit t1 t2 >>= t3)
+        =-= (t1 >>= t3) `commit` (t2 >>= t3)
+
+  describe "proofstate" $ do
+    testBatch $ functor     (undefined :: ProofStateTest (Int, Int, Int))
+    testBatch $ applicative (undefined :: ProofStateTest (Int, Int, Int))
+    testBatch $ alternative (undefined :: ProofStateTest Int)
+    testBatch $ monad       (undefined :: ProofStateTest (Int, Int, Int))
+    testBatch $ monadPlus   (undefined :: ProofStateTest (Int, Int))
+    testBatch $ monadState  (undefined :: ProofStateTest (Int, Int))
+
+  describe "proofstate" $ do
+    testBatch $ functor     (undefined :: RuleTest (Term, Term, Term))
+    testBatch $ applicative (undefined :: RuleTest (Term, Term, Term))
+    testBatch $ monad       (undefined :: RuleTest (Term, Term, Term))
+
+  describe "proofstate" $ do
+    testBatch $ functor     (undefined :: TacticTest ((), (), ()))
+    testBatch $ applicative (undefined :: TacticTest ((), (), ()))
+    testBatch $ alternative (undefined :: TacticTest ())
+    testBatch $ monad       (undefined :: TacticTest ((), (), ()))
+    testBatch $ monadPlus   (undefined :: TacticTest ((), ()))
+    testBatch $ monadState  (undefined :: TacticTest ((), ()))
+
+
+testBatch :: TestBatch -> Spec
+testBatch (group, tests) =
+  describe group $
+    for_ tests $ uncurry prop
 
 
 main :: IO ()
 main = do
   hspec spec
 
---   quickBatch $ functor     (undefined :: ProofStateTest (Int, Int, Int))
---   quickBatch $ applicative (undefined :: ProofStateTest (Int, Int, Int))
---   quickBatch $ alternative (undefined :: ProofStateTest Int)
---   quickBatch $ monad       (undefined :: ProofStateTest (Int, Int, Int))
---   quickBatch $ monadPlus   (undefined :: ProofStateTest (Int, Int))
---   quickBatch $ monadState  (undefined :: ProofStateTest (Int, Int))
 
---   quickBatch $ functor     (undefined :: RuleTest (Term, Term, Term))
---   quickBatch $ applicative (undefined :: RuleTest (Term, Term, Term))
---   quickBatch $ monad       (undefined :: RuleTest (Term, Term, Term))
-
---   quickBatch $ functor     (undefined :: TacticTest ((), (), ()))
---   quickBatch $ applicative (undefined :: TacticTest ((), (), ()))
---   quickBatch $ alternative (undefined :: TacticTest ())
---   quickBatch $ monad       (undefined :: TacticTest ((), (), ()))
---   quickBatch $ monadPlus   (undefined :: TacticTest ((), ()))
---   quickBatch $ monadState  (undefined :: TacticTest ((), ()))
 
 
 mkResult :: Show a => a -> TT
@@ -704,9 +740,9 @@ monadState _ =
   )
 
 
-test :: [Either String Term]
+test :: ([Either String Term], Int)
 test =
-  runIdentity $ runTactic2 (0 :: Int) testJdg $ do
+  flip runState 999 $ runTactic2 (0 :: Int) testJdg $ do
     commit (put 5) (pure ())
     get >>= mkResult
 
