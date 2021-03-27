@@ -59,11 +59,11 @@ spec = do
 
   prop "state is persistent across throw" $ \s e ->
     catch (put s >> throw e) (const $ get >>= mkResult)
-      =-= mkResult s
+      =-= (put s >> mkResult s)
 
   prop "state is persistent across rule" $ \s ->
     (put s >> (rule $ get >>= pure . Var . show))
-      =-= mkResult s
+      =-= (put s >> mkResult s)
 
   prop "commit rolls back state" $ \(t :: TT) s ->
     ((put s >> empty) `commit` t)

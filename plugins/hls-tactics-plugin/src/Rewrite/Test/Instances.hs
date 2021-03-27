@@ -179,12 +179,7 @@ instance Show a => Show (StateT Int Identity a) where
 instance Arbitrary Judgement where
   arbitrary = (:-) <$> scale (flip div 3) arbitrary <*> scale (flip div 2) arbitrary
 
-instance (Eq (Result s jdg err ext), EqProp s, EqProp jdg, EqProp err, EqProp ext) => EqProp (Result s jdg err ext) where
-  a =-= b = property $ do
-    counterexample (anythingToString a) $
-      counterexample (anythingToString b) $
-        a == b
-
+instance (EqProp s, EqProp jdg, EqProp err, EqProp ext) => EqProp (Result s jdg err ext)
 instance EqProp Term
 instance EqProp Judgement
 instance EqProp Type
