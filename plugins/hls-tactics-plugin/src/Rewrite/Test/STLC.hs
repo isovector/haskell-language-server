@@ -1,4 +1,5 @@
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections     #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -10,6 +11,9 @@ import Control.Monad.State.Strict
 import GHC.Exts
 import Control.Applicative
 import GHC.Generics (Generic)
+
+testJdg :: Judgement
+testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" (TPair "b" "c")
 
 
 instance Applicative m => MonadExtract Term m where
@@ -25,7 +29,12 @@ proof2 s =
     join
     (liftA2 (<>))
 
-runTactic2 :: Monad m => s -> Judgement -> TacticT Judgement Term err s m a -> m [Either err (s, Term)]
+runTactic2
+    :: Monad m
+    => s
+    -> Judgement
+    -> TacticT Judgement Term err s m a
+    -> m [Either err (s, Term)]
 runTactic2 s jdg (TacticT m) = proof2 s $ execStateT m jdg
 
 

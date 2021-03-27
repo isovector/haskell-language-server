@@ -353,6 +353,35 @@ kill s _ _ _ raise _ _ (Throw err) = raise s err
 kill s _ ok _ _ _ _ (Axiom ext) = ok s ext
 
 
+subgoals
+    :: Monad m
+    => [jdg -> ProofState ext err s m jdg]
+    -> ProofState ext err s m jdg
+    -> ProofState ext err s m jdg
+subgoals [] p = p
+subgoals (t:ts) p = do
+  s <- get
+  Effect $
+    kill
+      s
+      (\s' a k' -> pure $ put s' >> applyCont (subgoals ts . k') (t a))
+      (\s' ext -> pure $ put s' >> Axiom ext)
+      (pure Empty)
+      (\s' err -> pure $ put s' >> Throw err)
+      (pure . Effect . join)
+      (liftA2 (<|>))
+      p
+
+(<@>)
+    :: Monad m
+    => TacticT jdg ext err s m a
+    -> [TacticT jdg ext err s m a]
+    -> TacticT jdg ext err s m a
+TacticT t <@> ts =
+  TacticT $ StateT $ \jdg ->
+    subgoals (fmap (\(TacticT t') (_, jdg') -> runStateT t' jdg') ts) $ runStateT t jdg
+
+
 data Result s jdg err ext
   = HoleResult jdg
   | ErrorResult err
@@ -504,4 +533,7 @@ proof2 s =
     (\_ err -> pure $ pure $ ErrorResult err)
     join
     (liftA2 (<>))
+
+ignore :: Functor m => TacticT jdg ext err s m ()
+ignore = pure ()
 

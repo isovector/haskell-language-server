@@ -41,12 +41,17 @@ sig = signature
       , con @(T A -> T B -> T B) ">>" (>>)
       , con @(T Def) "empty" empty
       , con @(T Def -> T Def -> T Def) "<|>" (<|>)
+      , con @([T Def]) "[]" []
+      , con @(T Def -> [T Def]) "repeat" repeat
       ]
 
   , con @(T Def -> T Def -> T Def) "commit" commit
   , con @(Err -> T A) "throw" throw
   , con @(State SMS Def -> T Def) "lift" lift
   , con @(S -> T ()) "put" put
+
+  , con @(T Def -> [T Def] -> T Def) "<@>" (<@>)
+
 
   -- , con @(R -> T ()) "rule" rule
   -- , con @(T Def -> (Err -> T Def) -> T Def) "catch" catch

@@ -40,7 +40,7 @@ instance Arbitrary Term where
       in sized $ \ n -> case n <= 1 of
            True -> oneof terminal
            False -> oneof $
-             [ Lam <$> arbitrary <*> scale (subtract 1) arbitrary
+             [ Lam <$> arbitrary <*> scale (flip div 2) arbitrary
              , Pair <$> scale (flip div 2) arbitrary <*> scale (flip div 2) arbitrary
              ] <> terminal
 
@@ -60,9 +60,9 @@ instance ( Arbitrary err
      in sized $ \n -> case n <= 1 of
           True  -> oneof terminal
           False -> oneof $
-            [ Subgoal <$> arbitrary <*> scale (subtract 1) arbitrary
-            , Effect <$> scale (subtract 1) arbitrary
-            , Stateful <$> scale (subtract 1) arbitrary
+            [ Subgoal <$> arbitrary <*> scale (flip div 2) arbitrary
+            , Effect <$> scale (flip div 2) arbitrary
+            , Stateful <$> scale (flip div 2) arbitrary
             , Alt <$> scale (flip div 2) arbitrary
                   <*> scale (flip div 2) arbitrary
             , Commit <$> scale (flip div 3) (arbitrary @(ProofState ext err s m Int))

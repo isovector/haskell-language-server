@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Rewrite.Test.Spec where
 
 import Control.Applicative
@@ -15,9 +13,6 @@ import Test.QuickCheck.Checkers
 import Test.QuickCheck.Classes
 
 
-testJdg :: Judgement
-testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" "b"
-
 
 type ProofStateTest = ProofState Term String Int (State Int)
 type TacticTest = TacticT Judgement Term String Int (State Int)
@@ -25,6 +20,12 @@ type RuleTest = Rule Judgement Term String Int (State Int)
 
 spec :: Spec
 spec = do
+  prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) ->
+    t1 <@> repeat tt =-= (t1 >> tt)
+
+  prop "<@> of [] is id" $ \(t1 :: TT) ->
+    t1 <@> [] =-= t1
+
   prop "pull effects out of the left side" $ \(t1 :: TT) (t2 :: TT) e ->
     commit (lift e >> t1) t2 =-= ((lift e :: TT) >> commit t1 t2)
 
