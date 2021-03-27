@@ -72,6 +72,19 @@ instance ( Arbitrary err
                      <*> scale (flip div 3) arbitrary
                      <*> scale (flip div 3) arbitrary
             ] <> terminal
+  shrink (Subgoal a fextpexterrsma) = Subgoal <$> shrink a <*> shrink fextpexterrsma
+  shrink (Effect mpexterrsma) = mappend [Empty] $ Effect <$> shrink mpexterrsma
+  shrink (Stateful fsp_spexterrsma) = mappend [Empty] $ Stateful <$> shrink fsp_spexterrsma
+  shrink (Alt pexterrsma4 pexterrsma5) = mconcat $
+    [ shrink pexterrsma4
+    , shrink pexterrsma5
+    , Alt pexterrsma4 <$> shrink pexterrsma5
+    ]
+  shrink (Commit pexterrsmx pexterrsmx5 fxpexterrsma) = [Empty]
+  shrink Empty = []
+  shrink (Handle pexterrsmx ferrpexterrsmx fxpexterrsma) = [Empty]
+  shrink (Throw err) = Throw <$> shrink err
+  shrink (Axiom ext) = Axiom <$> shrink ext
 
 instance ( Arbitrary err
          , CoArbitrary err
@@ -85,6 +98,8 @@ instance ( Arbitrary err
          , Typeable a
          , Functor m
          , Arbitrary jdg
+         , CoArbitrary jdg
+         , Arbitrary (m (ProofState ext err s m (a, jdg)))
          , Arbitrary (m (Rule jdg ext err s m ext))
          ) => Arbitrary (TacticT jdg ext err s m a) where
   arbitrary = oneof
@@ -95,6 +110,7 @@ instance ( Arbitrary err
     ]
     where
       arb = TacticT . lift <$> arbitrary
+  shrink (TacticT (StateT t)) = fmap (TacticT . StateT) $ shrink t
 
 instance  ( Arbitrary a
           , Arbitrary jdg
@@ -127,7 +143,6 @@ instance (CoArbitrary s, Arbitrary a, Arbitrary s) => Arbitrary (State s a) wher
 
 
 instance ( Arbitrary s
-         , Monad m
          , EqProp (m [Result s jdg err ext])
          , MonadExtract ext m
          ) => EqProp (ProofState ext err s m jdg) where
@@ -141,10 +156,10 @@ instance ( Monad m
   a =-= b = rule a =-= rule b
 
 instance ( Arbitrary s
-         , Monad m
          , Arbitrary jdg
-         , EqProp (m [Result s jdg err Term])
-         ) => EqProp (TacticT jdg Term err s m a) where
+         , EqProp (m [Result s jdg err ext])
+         , MonadExtract ext m
+         ) => EqProp (TacticT jdg ext err s m a) where
   a =-= b = property $ do
     s <- arbitrary @s
     jdg <- arbitrary @jdg

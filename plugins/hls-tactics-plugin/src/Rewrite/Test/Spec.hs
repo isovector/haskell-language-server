@@ -20,6 +20,12 @@ type RuleTest = Rule Judgement Term String Int (State Int)
 
 spec :: Spec
 spec = do
+  prop "pruning (const Nothing) is id" $ \(t :: TT) ->
+      pruning t (const Nothing) =-= t
+
+  prop "pruning t (const . Just) is t >> throw" $ \(t :: TT) e ->
+      pruning t (const $ Just e) =-= (t >> throw e)
+
   prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) ->
     t1 <@> repeat tt =-= (t1 >> tt)
 
@@ -181,10 +187,9 @@ monadState _ =
 
 testBetter :: IO ()
 testBetter = do
-  let s = 0
-      e = ""
-
-
-  print $ flip runState 9 $ runTactic2 0 testJdg (catch (put s >> throw e) (const $ get >>= mkResult))
-  print $ flip runState 9 $ runTactic2 0 testJdg (mkResult s)
+  let x :: TacticT Judgement Term String [Bool] IO ()
+      x = (rule $ subgoal ([] :- TVar "hole") <* lift (putStrLn "1"))
+            <|> lift (putStrLn "2")
+  print =<< runTactic2 [True] testJdg (pruning x $ const $ Just "e")
+  print =<< runTactic2 [True] testJdg (x >> throw "e")
 

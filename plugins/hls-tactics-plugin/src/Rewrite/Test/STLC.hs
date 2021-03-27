@@ -16,7 +16,7 @@ testJdg :: Judgement
 testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" (TPair "b" "c")
 
 
-instance Applicative m => MonadExtract Term m where
+instance Monad m => MonadExtract Term m where
   hole = pure Hole
 
 proof2 :: Monad m => s -> ProofState Term err s m a -> m [Either err (s, Term)]

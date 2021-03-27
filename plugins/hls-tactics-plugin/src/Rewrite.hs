@@ -12,6 +12,7 @@ import Test.QuickCheck.Classes ()
 import GHC.Generics (Generic)
 import Data.Tuple (swap)
 import Debug.RecoverRTTI
+import Debug.Trace (traceM)
 
 
 data ProofState ext err s m a where
@@ -216,7 +217,7 @@ throw = TacticT . lift . Throw
 
 
 
-class MonadExtract ext m | m -> ext where
+class Monad m => MonadExtract ext m | m -> ext where
   hole :: m ext
 
 
@@ -292,6 +293,22 @@ instance Monad (Blah ext err s m) where
       ok cut raise eff keep
 
 
+sequenceImmediateEffects
+    :: Monad m
+    => s
+    -> ProofState ext err s m a
+    -> m (ProofState ext err s m a)
+sequenceImmediateEffects s =
+  kill
+    s
+    (\s' a k' -> pure $ put s' >> Subgoal a k')
+    (\s ext -> pure $ put s >> Axiom ext)
+    (pure Empty)
+    (\s' err -> pure $ put s' >> Throw err)
+    (pure . Effect . join)
+    (liftA2 (<|>))
+
+
 kill
     :: Monad m
     => s
@@ -318,20 +335,9 @@ kill s sub ok cut raise eff keep (Alt t1 t2) =
        (kill s sub ok cut raise eff keep t2)
 
 kill s sub ok cut raise eff keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
-  let kill_as_proofstate t =
-        kill s
-          (\s' a k' -> pure $ put s' >> Subgoal a k')
-          (\s ext -> pure $ put s >> Axiom ext)
-          (pure Empty)
-          (\s' err -> pure $ put s' >> Throw err)
-          (pure . Effect . join)
-          (liftA2 (<|>))
-          t
-  (x1 :: ProofState ext err s m x) <-
-    kill_as_proofstate t1
+  (x1 :: ProofState ext err s m x) <- sequenceImmediateEffects s t1
   let run_t2 sub' ok' cut' raise eff' keep' = do
-        (x2 :: ProofState ext err s m x) <-
-          kill_as_proofstate t2
+        (x2 :: ProofState ext err s m x) <- sequenceImmediateEffects s t2
         kill s sub' ok' cut' raise eff' keep' $ k =<< x2
 
       sub' = (\s' x k' -> kill s' sub ok cut raise eff keep $ Subgoal x k' >>= k)
@@ -372,6 +378,25 @@ subgoals (t:ts) p = do
       (liftA2 (<|>))
       p
 
+-- gather
+--     :: Monad m
+--     => TacticT jdg ext err s m a
+--     -> ([(a, jdg)] -> TacticT jdg ext err s m a)
+--     -> TacticT jdg ext err s m a
+-- gather (TacticT t) f = TacticT $ StateT $ \jdg -> do
+--   let p = runStateT t jdg
+--   s <- get
+--   Effect $
+--     kill
+--       s
+--       (\s' (a, jdg) k' -> pure $ put s' >> applyCont k' $ f (a, jdg))
+--       (\s' ext -> pure $ put s' >> Axiom ext)
+--       (pure Empty)
+--       (\s' err -> pure $ put s' >> Throw err)
+--       (pure . Effect . join)
+--       (liftA2 (<|>))
+--       p
+
 (<@>)
     :: Monad m
     => TacticT jdg ext err s m a
@@ -383,9 +408,8 @@ TacticT t <@> ts =
 
 
 data Result s jdg err ext
-  = HoleResult jdg
-  | ErrorResult err
-  | Extract s ext
+  = ErrorResult err
+  | Extract s ext [jdg]
   | NoResult
   deriving stock (Show, Generic, Eq)
 
@@ -395,18 +419,65 @@ data Result s jdg err ext
 -- (<@>) t (s : ss) = kill _ _ _ _ _ _ _ t
 
 
-proof :: (MonadExtract ext m , Monad m) => s -> ProofState ext err s m jdg -> m [Result s jdg err ext]
+proof
+    :: MonadExtract ext m
+    => s
+    -> ProofState ext err s m jdg
+    -> m [Result s jdg err ext]
 proof s =
   kill s
     (\s' _ x -> proof s' $ x =<< lift hole)
-    (\s -> pure . pure . Extract s)
+    (\s ext -> pure . pure $ Extract s ext [])
     (pure [])
     (const $ pure . pure . ErrorResult)
     join
     (liftA2 (<>))
 
+class MonadSlip m where
+  slip :: m (r -> x) -> r -> m x
 
-runTactic :: (MonadExtract ext m, Monad m) => s -> jdg -> TacticT jdg ext err s m a -> m [Result s jdg err ext]
+
+proofgoals
+    :: MonadExtract ext m
+    => ([jdg] -> Maybe err)
+    -> s
+    -> ProofState ext err s m jdg
+    -> m ([jdg] -> ProofState ext err s m jdg)
+proofgoals f s =
+  kill s
+    (\s' jdg k -> do
+      r <- proofgoals f s' $ k =<< lift hole
+      pure $ \goals -> r $ jdg : goals
+      )
+    (\s' ext -> pure $ \goals -> put s' >>
+      case f goals of
+        Just err -> Throw err
+        Nothing -> Axiom ext
+    )
+    (pure $ const empty)
+    (\s' err -> pure $ const $ put s' >> Throw err)
+    (\mma -> pure $ \goals -> Effect $ fmap ($ goals) $ join mma)
+    (liftA2 $ liftA2 (<|>))
+
+
+pruning
+    :: MonadExtract ext m
+    => TacticT jdg ext err s m ()
+    -> ([jdg] -> Maybe err)
+    -> TacticT jdg ext err s m ()
+pruning (TacticT t) f = do
+  s <- get
+  TacticT $ StateT $ \jdg -> do
+    let t' = execStateT t jdg
+    go <- lift $ proofgoals f s t'
+    fmap ((), ) $ go []
+
+
+runTactic
+    :: MonadExtract ext m
+    => s
+    -> jdg
+    -> TacticT jdg ext err s m a -> m [Result s jdg err ext]
 runTactic s jdg (TacticT m) = proof s $ execStateT m jdg
 
 
@@ -461,8 +532,8 @@ throw2 :: err -> Tactic2 jdg ext err s m a
 throw2 err = Tactic2 $ lift $ Blah $ \s _ _ _ _ raise _ _ -> raise s err
 
 
-sequenceImmediateEffects :: Monad m => s -> Blah ext err s m a -> m (Blah ext err s m a)
-sequenceImmediateEffects s (Blah m) =
+sequenceImmediateEffects2 :: Monad m => s -> Blah ext err s m a -> m (Blah ext err s m a)
+sequenceImmediateEffects2 s (Blah m) =
   m s
     (\s' a k -> pure $ do
       put s'
@@ -505,11 +576,11 @@ kill2 s sub ok cut raise eff keep (Blah m) =
             -> (s -> err -> m r)
             -> m r
           run_c2 cut' raise' = do
-            x2 <- sequenceImmediateEffects s' c2
+            x2 <- sequenceImmediateEffects2 s' c2
             kill2 s' sub ok cut' raise' eff keep
               $ k =<< x2
 
-      x1 <- sequenceImmediateEffects s' c1
+      x1 <- sequenceImmediateEffects2 s' c1
       kill2
         s' sub ok
         (run_c2 cut raise)
@@ -523,12 +594,12 @@ kill2 s sub ok cut raise eff keep (Blah m) =
     ok cut raise eff keep
 
 
-proof2 :: (MonadExtract ext m, Monad m) => s -> Blah ext err s m a -> m [Result s jdg err ext]
+proof2 :: MonadExtract ext m => s -> Blah ext err s m a -> m [Result s jdg err ext]
 proof2 s =
   kill2
     s
     (\s' _ x -> proof2 s' . x =<< hole)
-    (\s' ext -> pure $ pure $ Extract s' ext)
+    (\s' ext -> pure $ pure $ Extract s' ext [])
     (pure $ pure $ NoResult)
     (\_ err -> pure $ pure $ ErrorResult err)
     join
