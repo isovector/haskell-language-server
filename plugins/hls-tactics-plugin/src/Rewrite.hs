@@ -2,6 +2,7 @@
 {-# LANGUAGE StandaloneDeriving     #-}
 {-# LANGUAGE TupleSections          #-}
 {-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Rewrite where
 
@@ -228,8 +229,45 @@ class MonadExtract ext m | m -> ext where
   hole :: m ext
 
 
+data Blah ext err s m a = Blah
+  { unBlah
+      :: forall r.  s
+      -> (s -> a -> (ext -> Blah ext err s m a) -> m r)
+      -> (s -> ext -> m r)
+      -> m r
+      -> (s -> err -> m r)
+      -> (m (m r) -> m r)
+      -> (m r -> m r -> m r)
+      -> m r
+  }
+  deriving Functor
+
+instance Applicative (Blah ext err s m) where
+  pure a = Blah $ \s sub _ _ _ _ _ ->
+    sub s a $ \ext ->
+      Blah $ \s' _ ok' _ _ _ _ -> ok' s' ext
+  Blah f <*> Blah a = Blah $ \s sub ok cut raise eff keep ->
+    f s
+      (\s' ab k ->
+        a s'
+          (\s'' a k' -> sub s'' (ab a) $ liftA2 (<*>) k k')
+          ok cut raise eff keep)
+      ok cut raise eff keep
+
+instance Monad (Blah ext err s m) where
+  return = pure
+  Blah ma >>= f = Blah $ \s sub ok cut raise eff keep ->
+    ma s
+      (\s' a k ->
+        unBlah
+          (f a) s' sub
+          (\s' ext -> unBlah (k ext >>= f) s' sub ok cut raise eff keep)
+          cut raise eff keep)
+      ok cut raise eff keep
+
+
 kill
-    :: (Monad m, MonadExtract ext m)
+    :: Monad m
     => s
     -> (s -> a -> (ext -> ProofState ext err s m a) -> m r)
     -> (s -> ext -> m r)
@@ -300,6 +338,11 @@ data Result s jdg err ext
   | Extract s ext
   | NoResult
   deriving stock (Show, Generic)
+
+
+-- (<@>) :: Functor m => TacticT jdg ext err s m a -> [TacticT jdg ext err s m a] -> TacticT jdg ext err s m a
+-- (<@>) t [] = t
+-- (<@>) t (s : ss) = kill _ _ _ _ _ _ _ t
 
 
 proof :: (MonadExtract ext m , Monad m) => s -> ProofState ext err s m jdg -> m [Result s jdg err ext]

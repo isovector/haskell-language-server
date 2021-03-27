@@ -58,4 +58,3 @@ sig = signature
 main :: IO ()
 main = quickSpec sig
 
-
