@@ -180,10 +180,10 @@ monadState _ =
 
 testBetter :: IO ()
 testBetter = do
-  let x :: TacticT Judgement Term String [Bool] IO ()
-      x = (rule $ subgoal mempty <* lift (putStrLn "left"))
-            <|> lift (putStrLn "right")
+  let s = 0
+      e = ""
 
-  print =<< runTactic2 [True] testJdg (commit x empty)
-  print =<< runTactic2 [True] testJdg x
+
+  print $ flip runState 9 $ runTactic2 0 testJdg (catch (put s >> throw e) (const $ get >>= mkResult))
+  print $ flip runState 9 $ runTactic2 0 testJdg (mkResult s)
 

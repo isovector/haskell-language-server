@@ -65,8 +65,6 @@ instance ( Arbitrary err
             , Stateful <$> scale (subtract 1) arbitrary
             , Alt <$> scale (flip div 2) arbitrary
                   <*> scale (flip div 2) arbitrary
-            , Interleave <$> scale (flip div 2) arbitrary
-                         <*> scale (flip div 2) arbitrary
             , Commit <$> scale (flip div 3) (arbitrary @(ProofState ext err s m Int))
                      <*> scale (flip div 3) arbitrary
                      <*> scale (flip div 3) arbitrary
@@ -181,7 +179,12 @@ instance Show a => Show (StateT Int Identity a) where
 instance Arbitrary Judgement where
   arbitrary = (:-) <$> scale (flip div 3) arbitrary <*> scale (flip div 2) arbitrary
 
-instance (EqProp s, EqProp jdg, EqProp err, EqProp ext) => EqProp (Result s jdg err ext)
+instance (Eq (Result s jdg err ext), EqProp s, EqProp jdg, EqProp err, EqProp ext) => EqProp (Result s jdg err ext) where
+  a =-= b = property $ do
+    counterexample (anythingToString a) $
+      counterexample (anythingToString b) $
+        a == b
+
 instance EqProp Term
 instance EqProp Judgement
 instance EqProp Type

@@ -29,10 +29,6 @@ data ProofState ext err s m a where
     :: ProofState ext err s m a
     -> ProofState ext err s m a
     -> ProofState ext err s m a
-  Interleave
-    :: ProofState ext err s m a
-    -> ProofState ext err s m a
-    -> ProofState ext err s m a
   Commit
     :: ProofState ext err s m x
     -> ProofState ext err s m x
@@ -98,8 +94,6 @@ instance Functor m => Functor (ProofState ext err s m) where
     = Stateful $ fmap (fmap (fmap f)) m
   fmap f (Alt t1 t2)
     = Alt (fmap f t1) (fmap f t2)
-  fmap f (Interleave t1 t2)
-    = Interleave (fmap f t1) (fmap f t2)
   fmap f (Commit t1 t2 k)
     = Commit t1 t2 $ fmap f . k
   fmap _ Empty
@@ -121,7 +115,6 @@ instance Functor m => Monad (ProofState ext err s m) where
   (>>=) (Effect m) f = Effect $ fmap (f =<<) m
   (>>=) (Stateful m) f = Stateful $ fmap (fmap (f =<<)) m
   (>>=) (Alt t1 t2) f = Alt (t1 >>= f) (t2 >>= f)
-  (>>=) (Interleave t1 t2) f = Interleave (f =<< t1) (f =<< t2)
   (>>=) (Commit t1 t2 k) f = Commit t1 t2 $ f <=< k
   (>>=) Empty _ = Empty
   (>>=) (Handle t h k) f = Handle t h $ f <=< k
@@ -153,8 +146,6 @@ applyCont k (Stateful s)
   = Stateful $ fmap (applyCont k) . s
 applyCont k (Alt p1 p2)
   = Alt (applyCont k p1) (applyCont k p2)
-applyCont k (Interleave p1 p2)
-  = Interleave (applyCont k p1) (applyCont k p2)
 applyCont k (Commit p1 p2 k')
   = Commit p1 p2 $ applyCont k . k'
 applyCont k (Handle t h k')
@@ -231,38 +222,73 @@ class MonadExtract ext m | m -> ext where
 
 data Blah ext err s m a = Blah
   { unBlah
-      :: forall r.  s
-      -> (s -> a -> (ext -> Blah ext err s m a) -> m r)
-      -> (s -> ext -> m r)
-      -> m r
-      -> (s -> err -> m r)
-      -> (m (m r) -> m r)
-      -> (m r -> m r -> m r)
-      -> m r
+      :: forall r
+       . s
+      -> (s -> a -> (ext -> Blah ext err s m a) -> r)
+      -> (forall x. s -> Blah ext err s m x -> Blah ext err s m x -> (x -> Blah ext err s m a) -> r)
+      -> (s -> ext -> r)
+      -> r
+      -> (s -> err -> r)
+      -> (m r -> r)
+      -> (r -> r -> r)
+      -> r
   }
-  deriving Functor
+
+instance Alternative (Blah ext err s m) where
+  Blah m1 <|> Blah m2 = Blah $ \s sub comm ok cut raise eff keep ->
+    keep (m1 s sub comm ok cut raise eff keep) (m2 s sub comm ok cut raise eff keep)
+  empty = Blah $ \_ _ _ _ cut _ _ _ -> cut
+
+instance MonadPlus (Blah ext err s m) where
+
+instance MonadTrans (Blah ext err s) where
+  lift ma = Blah $ \s sub comm ok cut raise eff keep -> eff $
+    fmap (\a -> unBlah (pure a) s sub comm ok cut raise eff keep) ma
+
+
+instance MonadState s (Blah ext err s m) where
+  state f = Blah $ \s sub _ _ _ _ _ _ ->
+    let (a, s') = f s
+     in sub s' a $ \ext ->
+          Blah $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
+
+
+instance Functor (Blah ext err s m) where
+  fmap f (Blah fa) = Blah $ \s sub comm ok cut raise eff keep ->
+    fa
+      s
+      (\s' a k -> sub s' (f a) $ fmap (fmap f) k)
+      (\s' c1 c2 k -> comm s' c1 c2 $ fmap (fmap f) k)
+      ok cut raise eff keep
 
 instance Applicative (Blah ext err s m) where
-  pure a = Blah $ \s sub _ _ _ _ _ ->
+  pure a = Blah $ \s sub _ _ _ _ _ _ ->
     sub s a $ \ext ->
-      Blah $ \s' _ ok' _ _ _ _ -> ok' s' ext
-  Blah f <*> Blah a = Blah $ \s sub ok cut raise eff keep ->
+      Blah $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
+  Blah f <*> blah@(Blah a) = Blah $ \s sub comm ok cut raise eff keep ->
     f s
       (\s' ab k ->
-        a s'
+        a
+          s'
           (\s'' a k' -> sub s'' (ab a) $ liftA2 (<*>) k k')
+          (\s'' c1 c2 k' -> comm s'' c1 c2 $ \x -> fmap ab $ k' x)
           ok cut raise eff keep)
+      (\s' c1 c2 k -> comm s' c1 c2 $ \x -> k x <*> blah)
       ok cut raise eff keep
 
 instance Monad (Blah ext err s m) where
   return = pure
-  Blah ma >>= f = Blah $ \s sub ok cut raise eff keep ->
+  Blah ma >>= f = Blah $ \s sub comm ok cut raise eff keep ->
     ma s
       (\s' a k ->
-        unBlah
-          (f a) s' sub
-          (\s' ext -> unBlah (k ext >>= f) s' sub ok cut raise eff keep)
+        unBlah (f a)
+          s' sub
+          comm
+          (\s' ext ->
+            unBlah (k ext >>= f)
+              s' sub comm ok cut raise eff keep)
           cut raise eff keep)
+      (\s' c1 c2 k -> comm s' c1 c2 $ k >=> f)
       ok cut raise eff keep
 
 
@@ -291,11 +317,6 @@ kill s sub ok cut raise eff keep (Alt t1 t2) =
   keep (kill s sub ok cut raise eff keep t1)
        (kill s sub ok cut raise eff keep t2)
 
-kill s sub ok cut raise eff keep (Interleave t1 t2) =
-  -- TODO(sandy): for now
-  keep (kill s sub ok cut raise eff keep t1)
-       (kill s sub ok cut raise eff keep t2)
-
 kill s sub ok cut raise eff keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
   let kill_as_proofstate t =
         kill s
@@ -316,8 +337,8 @@ kill s sub ok cut raise eff keep (Commit (t1 :: ProofState ext err s m x) t2 k) 
       sub' = (\s' x k' -> kill s' sub ok cut raise eff keep $ Subgoal x k' >>= k)
 
   kill s sub' ok
-               (run_t2 sub ok cut            raise eff keep)
-    (\s' err -> run_t2 sub ok (raise s' err) raise eff keep)
+                (run_t2 sub ok cut             raise                                              eff keep)
+    (\s1 err1 -> run_t2 sub ok (raise s1 err1) (\s2 err2 -> keep (raise s1 err1) (raise s2 err2)) eff keep)
     eff keep x1
 
 kill _ _ _ cut _ _ _ Empty = cut
@@ -337,7 +358,7 @@ data Result s jdg err ext
   | ErrorResult err
   | Extract s ext
   | NoResult
-  deriving stock (Show, Generic)
+  deriving stock (Show, Generic, Eq)
 
 
 -- (<@>) :: Functor m => TacticT jdg ext err s m a -> [TacticT jdg ext err s m a] -> TacticT jdg ext err s m a
@@ -375,4 +396,112 @@ catch (TacticT t) h = TacticT $ StateT $ \jdg ->
     (runStateT t jdg)
     (flip runStateT jdg . unTacticT . h)
     pure
+
+newtype Tactic2 jdg ext err s m a = Tactic2
+  { unTactic2 :: StateT jdg (Blah ext err s m) a
+  } deriving newtype (Functor, Applicative, Monad, Alternative, MonadPlus)
+
+
+commit2 :: Tactic2 jdg ext err s m a -> Tactic2 jdg ext err s m a -> Tactic2 jdg ext err s m a
+commit2 (Tactic2 t1) (Tactic2 t2) = tactic2 $ \jdg ->
+  Blah $ \s _ comm _ _ _ _ _ ->
+    comm s (runStateT t1 jdg) (runStateT t2 jdg) pure
+
+
+catch2
+    :: Tactic2 jdg ext err s m a
+    -> (err -> Tactic2 jdg ext err s m a)
+    -> Tactic2 jdg ext err s m a
+catch2 (Tactic2 t) h = tactic2 $ \jdg ->
+  Blah $ \s sub comm ok cut raise eff keep ->
+    unBlah (runStateT t jdg)
+      s sub comm ok cut
+      (\s' err -> unBlah (tacticToBlah jdg $ h err) s' sub comm ok cut raise eff keep)
+      eff keep
+
+tacticToBlah :: jdg -> Tactic2 jdg ext err s m a -> Blah ext err s m (a, jdg)
+tacticToBlah jdg (Tactic2 t) = runStateT t jdg
+
+tactic2 :: (jdg -> Blah ext err s m (a, jdg)) -> Tactic2 jdg ext err s m a
+tactic2 f = Tactic2 $ StateT $ f
+
+goal2 :: Tactic2 jdg ext err s m jdg
+goal2 = Tactic2 get
+
+throw2 :: err -> Tactic2 jdg ext err s m a
+throw2 err = Tactic2 $ lift $ Blah $ \s _ _ _ _ raise _ _ -> raise s err
+
+
+sequenceImmediateEffects :: Monad m => s -> Blah ext err s m a -> m (Blah ext err s m a)
+sequenceImmediateEffects s (Blah m) =
+  m s
+    (\s' a k -> pure $ do
+      put s'
+      Blah $ \s'' sub _ _ _ _ _ _ -> sub s'' a k
+      )
+    (\s' c1 c2 k -> pure $ do
+      put s'
+      Blah $ \s'' _ comm _ _ _ _ _ -> comm s'' c1 c2 k)
+    (\s' ext -> pure $ do
+      put s'
+      Blah $ \s'' _ _ ok _ _ _ _ -> ok s'' ext
+    )
+    (pure empty)
+    (\s' err -> pure $ do
+      put s'
+      Blah $ \s'' _ _ _ _ raise _ _ -> raise s'' err
+    )
+    join
+    (liftA2 (<|>))
+
+
+kill2
+  :: forall s m a ext err r
+   . Monad m
+  => s
+  -> (s -> a -> (ext -> Blah ext err s m a) -> m r)
+  -> (s -> ext -> m r)
+  -> m r
+  -> (s -> err -> m r)
+  -> (m (m r) -> m r)
+  -> (m r -> m r -> m r)
+  -> Blah ext err s m a
+  -> m r
+kill2 s sub ok cut raise eff keep (Blah m) =
+  m
+    s sub
+    (\s' c1 c2 k -> do
+      let run_c2
+            :: m r
+            -> (s -> err -> m r)
+            -> m r
+          run_c2 cut' raise' = do
+            x2 <- sequenceImmediateEffects s' c2
+            kill2 s' sub ok cut' raise' eff keep
+              $ k =<< x2
+
+      x1 <- sequenceImmediateEffects s' c1
+      kill2
+        s' sub ok
+        (run_c2 cut raise)
+        (\s1 err1 ->
+          run_c2
+            (raise s1 err1)
+            (\s2 err2 -> keep (raise s1 err1) (raise s2 err2)))
+        eff keep
+          $ k =<< x1
+    )
+    ok cut raise eff keep
+
+
+proof2 :: (MonadExtract ext m, Monad m) => s -> Blah ext err s m a -> m [Result s jdg err ext]
+proof2 s =
+  kill2
+    s
+    (\s' _ x -> proof2 s' . x =<< hole)
+    (\s' ext -> pure $ pure $ Extract s' ext)
+    (pure $ pure $ NoResult)
+    (\_ err -> pure $ pure $ ErrorResult err)
+    join
+    (liftA2 (<>))
 

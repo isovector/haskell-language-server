@@ -4,7 +4,7 @@
 
 module Rewrite.Test.STLC where
 
-import Rewrite
+import Rewrite hiding (proof2)
 import Data.Foldable
 import Control.Monad.State.Strict
 import GHC.Exts
