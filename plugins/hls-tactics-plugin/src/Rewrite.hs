@@ -292,29 +292,9 @@ TacticT t <@> ts =
       runStateT t jdg
 
 
-
-kill
-  :: forall s m a ext err r
-   . s
-  -> (s -> a -> (ext -> ProofState ext err s m a) -> r)
-  -> (s -> ext -> r)
-  -> r
-  -> (s -> err -> r)
-  -> (m r -> r)
-  -> (r -> r -> r)
-  -> ProofState ext err s m a
-  -> r
-kill s sub ok cut raise eff alt (ProofState m) = do
-  m
-    s sub
-    ok cut raise
-    eff
-    alt
-
-
 proof :: MonadExtract ext m => s -> ProofState ext err s m a -> m [Result s err ext]
-proof s =
-  kill
+proof s p =
+  runProofState p
     s
     (\s' _ x -> proof s' . x =<< hole)
     (\s' ext -> pure $ pure $ Extract s' ext)

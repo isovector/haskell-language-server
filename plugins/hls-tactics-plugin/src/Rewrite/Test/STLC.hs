@@ -29,21 +29,13 @@ instance MonadExtract Term IO where
     pure $ Hole
 
 proof2 :: MonadExtract ext m => s -> ProofState ext err s m a -> m [Either err (s, ext)]
-proof2 s = do
-  kill s
-    (\s' _ x -> do
-      r <- proof2 s' $ x =<< lift hole
-      pure r
-    )
+proof2 s p = do
+  runProofState p s
+    (\s' _ x -> proof2 s' $ x =<< lift hole)
     (\s -> pure . pure . Right . (s, ))
     (pure [])
     (const $ pure . pure . Left)
-    (\ma -> do
-      -- !_ <- traceM " <"
-      r <- join ma
-      -- !_ <- traceM " >"
-      pure r
-    )
+    join
     (liftA2 (<>))
 
 runTactic2
