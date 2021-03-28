@@ -258,6 +258,34 @@ throw :: err -> TacticT jdg ext err s m a
 throw err = TacticT $ lift $ ProofState $ \s _ _ _ _ raise _ _ -> raise s err
 
 
+subgoals
+    :: Monad m
+    => [jdg -> ProofState ext err s m jdg]
+    -> ProofState ext err s m jdg
+    -> ProofState ext err s m jdg
+subgoals [] p = p
+subgoals tt@(t:ts) (ProofState p) =
+  ProofState $ \s sub comm ok cut raise eff alt ->
+    p
+      s
+      (\s' jdg k ->
+        runProofState (applyCont (subgoals ts . k) $ t jdg)
+          s' sub comm ok cut raise eff alt
+      )
+      (\s' c1 c2 k -> comm s' c1 c2 $ subgoals tt . k)
+      ok cut raise eff alt
+
+
+(<@>)
+    :: Monad m
+    => TacticT jdg ext err s m a
+    -> [TacticT jdg ext err s m a]
+    -> TacticT jdg ext err s m a
+TacticT t <@> ts =
+  TacticT $ StateT $ \jdg ->
+    subgoals (fmap (\(TacticT t') (_, jdg') -> runStateT t' jdg') ts) $ runStateT t jdg
+
+
 kill
   :: forall s m a ext err r
    . Monad m

@@ -37,10 +37,11 @@ type PS = ProofState Term String [Bool] (State Int) ()
 
 
 spec :: Spec
-spec = modifyMaxSuccess (const 1000) $ do
+spec = modifyMaxSuccess (const 10000) $ do
 
---   prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) -> do
---     t1 <@> repeat tt =-= (t1 >> tt)
+  prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) ->
+    within (1e5) $
+      t1 <@> repeat tt =-= (t1 >> tt)
 
 --   prop "pruning t (const . Just) is t >> throw" $ \(t :: NoEffects ()) e ->
 --     pruning t (const $ Just e) =-= (t >> throw e)
@@ -48,83 +49,104 @@ spec = modifyMaxSuccess (const 1000) $ do
 --   prop "pruning (const Nothing) is id" $ \(t :: TT) ->
 --     pruning t (const Nothing) =-= t
 
---   prop "<@> of [] is id" $ \(t1 :: TT) ->
---     t1 <@> [] =-= t1
+  prop "<@> of [] is id" $ \(t1 :: TT) ->
+    within (1e5) $
+      t1 <@> [] =-= t1
 
   prop "distrib of tactic" $ \(t1 :: TT) (t2 :: TT) (t3 :: TT) ->
-    (t1 >> (t2 >> t3)) =-= ((t1 >> t2) >> t3)
+    within (1e5) $
+      (t1 >> (t2 >> t3)) =-= ((t1 >> t2) >> t3)
 
   prop "pull effects out of the left side" $ \(t1 :: TT) (t2 :: TT) e ->
-    commit (lift e >> t1) t2 =-= ((lift e :: TT) >> commit t1 t2)
+    within (1e5) $
+      commit (lift e >> t1) t2 =-= ((lift e :: TT) >> commit t1 t2)
 
   prop "left distrib put commit" $ \s (t1 :: TT) (t2 :: TT) ->
-    (put s >> commit t1 t2) =-= commit (put s >> t1) (put s >> t2)
+    within (1e5) $
+      (put s >> commit t1 t2) =-= commit (put s >> t1) (put s >> t2)
 
   prop "right distrib put commit" $ \s (t1 :: TT) (t2 :: TT) ->
-    (commit t1 t2 >> put s) =-= commit (t1 >> put s) (t2 >> put s)
+    within (1e5) $
+      (commit t1 t2 >> put s) =-= commit (t1 >> put s) (t2 >> put s)
 
   prop "commit x empty is x" $ \(t :: TT) ->
-    commit t empty =-= t
+    within (1e5) $
+      commit t empty =-= t
 
   prop "left distrib of <|> over >>=" $ \(t1 :: TI) t2 (t3 :: Int -> TT) ->
-    ((t1 <|> t2) >>= t3)
-      =-= ((t1 >>= t3) <|> (t2 >>= t3))
+    within (1e5) $
+      ((t1 <|> t2) >>= t3)
+        =-= ((t1 >>= t3) <|> (t2 >>= t3))
 
   prop "put distrib over alt" $ \(t1 :: TT) t2 s ->
-    (put s >> (t1 <|> t2))
-      =-= ((put s >> t1) <|> (put s >> t2))
+    within (1e5) $
+      (put s >> (t1 <|> t2))
+        =-= ((put s >> t1) <|> (put s >> t2))
 
   prop "alt rolls back state" $ \(t :: TT) s ->
-    ((put s >> empty) <|> t)
-      =-= t
+    within (1e5) $
+      ((put s >> empty) <|> t)
+        =-= t
 
   prop "catch of throw is just the handler" $ \err f ->
-    (catch (throw err) f :: TT)
-      =-= f err
+    within (1e5) $
+      (catch (throw err) f :: TT)
+        =-= f err
 
   prop "catch with rethrowing is id" $ \(t :: TT) ->
-    catch t throw
-      =-= t
+    within (1e5) $
+      catch t throw
+        =-= t
 
   prop "state is persistent across throw" $ \s e ->
-    catch (put s >> throw e) (const $ get >>= mkResult)
-      =-= (put s >> mkResult s)
+    within (1e5) $
+      catch (put s >> throw e) (const $ get >>= mkResult)
+        =-= (put s >> mkResult s)
 
   prop "state is persistent across rule" $ \s ->
-    (put s >> (rule $ get >>= pure . Var . show))
-      =-= (put s >> mkResult s)
+    within (1e5) $
+      (put s >> (rule $ get >>= pure . Var . show))
+        =-= (put s >> mkResult s)
 
   prop "commit rolls back state" $ \(t :: TT) s ->
-    ((put s >> empty) `commit` t)
-      =-= t
+    within (1e5) $
+      ((put s >> empty) `commit` t)
+        =-= t
 
   prop "commit takes handling preference over throw" $ \e f (i :: Int) ->
-    (catch (throw e `commit` mkResult i) f)
-      =-= mkResult i
+    within (1e5) $
+      (catch (throw e `commit` mkResult i) f)
+        =-= mkResult i
 
   prop "catch distributs across alt" $ \t1 t2 f ->
-    (catch (t1 <|> t2) f)
-      =-= (catch t1 f <|> catch t2 f :: TT)
+    within (1e5) $
+      (catch (t1 <|> t2) f)
+        =-= (catch t1 f <|> catch t2 f :: TT)
 
   prop "commit a rule always succeeds" $ \r t ->
-    ((commit (rule r) t) :: TT)
-      =-= rule r
+    within (1e5) $
+      ((commit (rule r) t) :: TT)
+        =-= rule r
 
   prop "commit semantics" $ \(t :: TT) (m :: TT) err ->
-    ((commit (pure ()) t >> m >> throw err) :: TT)
-      =-= (m >> throw err)
+    within (1e5) $
+      ((commit (pure ()) t >> m >> throw err) :: TT)
+        =-= (m >> throw err)
 
   prop "commit of pure" $ \(i :: Int) (t :: TI) ->
-    (commit (pure i) t >>= mkResult)
-      =-= mkResult i
+    within (1e5) $
+      (commit (pure i) t >>= mkResult)
+        =-= mkResult i
 
   prop "commit runs its continuation" $ \(i :: Int) (t :: TI) f ->
-    ((commit (pure i) t >> f) :: TT)
-      =-= f
+    within (1e5) $
+      ((commit (pure i) t >> f) :: TT)
+        =-= f
 
   prop "committing a hole keeps state" $ \s (t :: TT) ->
-    (commit (put s) t >> get >>= mkResult)
-      =-= (put s >> get >>= mkResult)
+    within (1e5) $
+      (commit (put s) t >> get >>= mkResult)
+        =-= (put s >> get >>= mkResult)
 
   prop "effect works properly" $
     expectFailure $ \(e :: State Int ()) (t :: TT) ->

@@ -2,6 +2,7 @@
 {-# LANGUAGE UndecidableInstances               #-}
 {-# OPTIONS_GHC -fno-warn-orphans               #-}
 
+{-# LANGUAGE TupleSections #-}
 module Rewrite.Test.Instances where
 
 import Rewrite
@@ -70,20 +71,28 @@ instance ( Arbitrary err
     [ arb
     ]
     where
-      arb = oneof
+      arb = frequency
         [
-          commit <$> scale (flip div 2) arbitrary
-                 <*> scale (flip div 2) arbitrary
-        , throw <$> arbitrary
-        , (<|>) <$> scale (flip div 2) arbitrary
+          -- (1,) $
+          -- commit <$> scale (flip div 2) arbitrary
+          --        <*> scale (flip div 2) arbitrary
+          (1,) $
+          throw <$> arbitrary
+        , (1,) $
+          (<|>) <$> scale (flip div 2) arbitrary
                 <*> scale (flip div 2) arbitrary
-        , pure empty
-        , catch <$> scale (flip div 2) arbitrary
+        , (1,) $
+          pure empty
+        , (1,) $
+          catch <$> scale (flip div 2) arbitrary
                 <*> scale (flip div 2) arbitrary
-        , (>>) <$> (arbitrary @(TacticT jdg ext err s m Int))
+        , (1,) $
+          (>>) <$> (arbitrary @(TacticT jdg ext err s m Int))
                <*> scale (flip div 2) arbitrary
-        , pure <$> arbitrary
-        , case eqT @a @() of
+        , (1,) $
+          pure <$> arbitrary
+        , (1,) $
+          case eqT @a @() of
             Just Refl -> fmap rule arbitrary
             Nothing -> pure <$> arbitrary
         ]
