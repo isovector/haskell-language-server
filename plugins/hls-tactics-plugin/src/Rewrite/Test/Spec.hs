@@ -46,7 +46,7 @@ spec = modifyMaxSuccess (const 1000) $ do
   prop "pruning t (const . Just) is t >> throw" $ \(t :: NoEffects ()) e ->
     (pruning t (const $ Just e)) =-= (t >> throw e :: NoEffects ())
 
-  prop "pruning (const Nothing) is id" $ \(t :: TT) ->
+  prop "pruning (const Nothing) is id" $ \(t :: NoEffects ()) ->
     pruning t (const Nothing) =-= t
 
   prop "<@> of [] is id" $ \(t1 :: TT) ->
