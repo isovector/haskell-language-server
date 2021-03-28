@@ -138,9 +138,7 @@ instance Monad (ProofState ext err s m) where
           s'
           sub
           comm
-          (\s'' ext ->
-            runProofState (k ext >>= f)
-              s'' sub comm ok cut raise eff alt)
+          ok
           cut raise eff alt)
       (\s' c1 c2 k -> comm s' c1 c2 $ k >=> f)
       ok cut raise eff alt
