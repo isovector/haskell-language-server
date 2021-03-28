@@ -67,35 +67,35 @@ instance ( Arbitrary err
          , Arbitrary (m Int)
          , Arbitrary (m ext)
          ) => Arbitrary (TacticT jdg ext err s m a) where
-  arbitrary = oneof
-    [ arb
-    ]
-    where
-      arb = frequency
-        [
-          -- (1,) $
-          -- commit <$> scale (flip div 2) arbitrary
-          --        <*> scale (flip div 2) arbitrary
-          (1,) $
-          throw <$> arbitrary
-        , (1,) $
-          (<|>) <$> scale (flip div 2) arbitrary
-                <*> scale (flip div 2) arbitrary
-        , (1,) $
-          pure empty
-        , (1,) $
-          catch <$> scale (flip div 2) arbitrary
-                <*> scale (flip div 2) arbitrary
-        , (1,) $
-          (>>) <$> (arbitrary @(TacticT jdg ext err s m Int))
-               <*> scale (flip div 2) arbitrary
-        , (1,) $
-          pure <$> arbitrary
-        , (1,) $
-          case eqT @a @() of
-            Just Refl -> fmap rule arbitrary
-            Nothing -> pure <$> arbitrary
-        ]
+  arbitrary
+    = let terminal = [pure <$> arbitrary]
+      in sized $ \ n -> case n <= 1 of
+           True -> oneof terminal
+           False -> frequency
+              [
+                (1,) $
+                commit <$> scale (flip div 2) arbitrary
+                      <*> scale (flip div 2) arbitrary
+              , (1,) $
+                throw <$> arbitrary
+              , (1,) $
+                (<|>) <$> scale (flip div 2) arbitrary
+                      <*> scale (flip div 2) arbitrary
+              , (1,) $
+                pure empty
+              , (1,) $
+                catch <$> scale (flip div 2) arbitrary
+                      <*> scale (flip div 2) arbitrary
+              , (1,) $
+                (>>) <$> (scale (flip div 2) $ arbitrary @(TacticT jdg ext err s m Int))
+                    <*> scale (flip div 2) arbitrary
+              , (1,) $
+                pure <$> arbitrary
+              , (1,) $
+                case eqT @a @() of
+                  Just Refl -> fmap rule arbitrary
+                  Nothing -> pure <$> arbitrary
+              ]
 
 instance  ( Arbitrary a
           , Arbitrary jdg

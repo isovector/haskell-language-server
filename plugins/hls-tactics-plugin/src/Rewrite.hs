@@ -71,13 +71,6 @@ data ProofState ext err s m a = ProofState
       :: forall r
        . s
       -> (s -> a -> (ext -> ProofState ext err s m a) -> r)
-      -> (forall x
-            . s
-           -> ProofState ext err s m x
-           -> ProofState ext err s m x
-           -> (x -> ProofState ext err s m a)
-           -> r
-         )
       -> (s -> ext -> r)
       -> r
       -> (s -> err -> r)
@@ -87,69 +80,62 @@ data ProofState ext err s m a = ProofState
   }
 
 instance Alternative (ProofState ext err s m) where
-  ProofState m1 <|> ProofState m2 = ProofState $ \s sub comm ok cut raise eff alt ->
-    alt (m1 s sub comm ok cut raise eff alt) (m2 s sub comm ok cut raise eff alt)
-  empty = ProofState $ \_ _ _ _ cut _ _ _ -> cut
+  ProofState m1 <|> ProofState m2 = ProofState $ \s sub ok cut raise eff alt ->
+    alt (m1 s sub ok cut raise eff alt) (m2 s sub ok cut raise eff alt)
+  empty = ProofState $ \_ _ _ cut _ _ _ -> cut
 
 instance MonadPlus (ProofState ext err s m) where
 
 instance MonadTrans (ProofState ext err s) where
-  lift ma = ProofState $ \s sub comm ok cut raise eff alt -> eff $
-    fmap (\a -> runProofState (pure a) s sub comm ok cut raise eff alt) ma
+  lift ma = ProofState $ \s sub ok cut raise eff alt -> eff $
+    fmap (\a -> runProofState (pure a) s sub ok cut raise eff alt) ma
 
 
 instance MonadState s (ProofState ext err s m) where
-  state f = ProofState $ \s sub _ _ _ _ _ _ ->
+  state f = ProofState $ \s sub _ _ _ _ _ ->
     let (a, s') = f s
      in sub s' a $ \ext ->
-          ProofState $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
+          ProofState $ \s' _ ok' _ _ _ _ -> ok' s' ext
 
 
 instance Functor (ProofState ext err s m) where
-  fmap f (ProofState fa) = ProofState $ \s sub comm ok cut raise eff alt ->
+  fmap f (ProofState fa) = ProofState $ \s sub ok cut raise eff alt ->
     fa
       s
       (\s' a k -> sub s' (f a) $ fmap (fmap f) k)
-      (\s' c1 c2 k -> comm s' c1 c2 $ fmap (fmap f) k)
       ok cut raise eff alt
 
 instance Applicative (ProofState ext err s m) where
-  pure a = ProofState $ \s sub _ _ _ _ _ _ ->
+  pure a = ProofState $ \s sub _ _ _ _ _ ->
     sub s a $ \ext ->
-      ProofState $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
-  (<*>) = ap
-  -- ProofState f <*> blah@(ProofState a) = ProofState $ \s sub comm ok cut raise eff alt ->
-  --   f s
-  --     (\s' ab k ->
-  --       a
-  --         s'
-  --         (\s'' a k' -> sub s'' (ab a) $ liftA2 (<*>) k k')
-  --         (\s'' c1 c2 k' -> comm s'' c1 c2 $ \x -> fmap ab $ k' x)
-  --         ok cut raise eff alt)
-  --     (\s' c1 c2 k -> comm s' c1 c2 $ \x -> k x <*> blah)
-  --     ok cut raise eff alt
+      ProofState $ \s' _ ok' _ _ _ _ -> ok' s' ext
+  ProofState f <*> ProofState a = ProofState $ \s sub ok cut raise eff alt ->
+    f s
+      (\s' ab k ->
+        a
+          s'
+          (\s'' a k' -> sub s'' (ab a) $ liftA2 (<*>) k k')
+          ok cut raise eff alt)
+      ok cut raise eff alt
 
 instance Monad (ProofState ext err s m) where
   return = pure
-  ProofState ma >>= f = ProofState $ \s sub comm ok cut raise eff alt ->
+  ProofState ma >>= f = ProofState $ \s sub ok cut raise eff alt ->
     ma s
       (\s' a k ->
         runProofState (applyCont (f <=< k) $ f a)
           s'
           sub
-          comm
           ok
           cut raise eff alt)
-      (\s' c1 c2 k -> comm s' c1 c2 $ k >=> f)
       ok cut raise eff alt
 
 applyCont :: (ext -> ProofState ext err s m a) -> ProofState ext err s m a -> ProofState ext err s m a
-applyCont k (ProofState m) = ProofState $ \s sub comm ok cut raise eff alt ->
+applyCont k (ProofState m) = ProofState $ \s sub ok cut raise eff alt ->
   m
     s
     (\s' a k' -> sub s' a $ applyCont k . k')
-    (\s' c1 c2 k' -> comm s' c1 c2 $ applyCont k . k')
-    (\s' ext -> runProofState (k ext) s' sub comm ok cut raise eff alt)
+    (\s' ext -> runProofState (k ext) s' sub ok cut raise eff alt)
     cut
     raise
     eff
@@ -188,10 +174,6 @@ instance (Show s, Monoid ext, Show a, Show ext, Show err, Monoid s, Show (m Stri
           , " <k>"
           , ")"
           ])
-      (\_ _c1 _c2 _k -> "(commit <c1> <c2>)")
-        -- mconcat
-        --   [ show $ tactic2 $ \jdg -> fmap (, jdg) c2
-        --   ])
       (\s ext ->
         mconcat
           [ "(put "
@@ -222,16 +204,36 @@ instance (Show s, Monoid ext, Show a, Show ext, Show err, Monoid s, Show (m Stri
 
 instance MonadState s (TacticT jdg ext err s m) where
   state f = TacticT $ StateT $ \jdg ->
-    ProofState $ \s sub _ _ _ _ _ _ ->
+    ProofState $ \s sub _ _ _ _ _ ->
       let (a, s') = f s
        in sub s' (a, jdg) $ \ext ->
-          ProofState $ \s'' _ _ ok' _ _ _ _ -> ok' s'' ext
+          ProofState $ \s'' _ ok' _ _ _ _ -> ok' s'' ext
 
 
-commit :: TacticT jdg ext err s m a -> TacticT jdg ext err s m a -> TacticT jdg ext err s m a
-commit (TacticT t1) (TacticT t2) = tactic2 $ \jdg ->
-  ProofState $ \s _ comm _ _ _ _ _ ->
-    comm s (runStateT t1 jdg) (runStateT t2 jdg) pure
+commit
+    :: forall s jdg ext err m a
+     . TacticT jdg ext err s m a
+    -> TacticT jdg ext err s m a
+    -> TacticT jdg ext err s m a
+commit (TacticT t1) (TacticT t2) = tactic2 $ \jdg -> do
+  ProofState $ \s sub ok cut raise eff (alt :: r -> r -> r) -> do
+    let run_c2
+          :: r
+          -> (s -> err -> r)
+          -> r
+        run_c2 cut' raise' = do
+          runProofState (runStateT t2 jdg) s sub ok cut' raise' eff alt
+
+    runProofState (runStateT t1 jdg)
+      s
+      sub
+      ok
+      (run_c2 cut raise)
+      (\s1 err1 ->
+        run_c2
+          (raise s1 err1)
+          (\s2 err2 -> alt (raise s1 err1) (raise s2 err2)))
+      eff alt
 
 
 catch
@@ -239,23 +241,27 @@ catch
     -> (err -> TacticT jdg ext err s m a)
     -> TacticT jdg ext err s m a
 catch (TacticT t) h = tactic2 $ \jdg ->
-  ProofState $ \s sub comm ok cut raise eff alt ->
+  ProofState $ \s sub ok cut raise eff alt ->
     runProofState (runStateT t jdg)
-      s sub comm ok cut
-      (\s' err -> runProofState (tacticToBlah jdg $ h err) s' sub comm ok cut raise eff alt)
+      s sub ok cut
+      (\s' err -> runProofState (tacticToBlah jdg $ h err) s' sub ok cut raise eff alt)
       eff alt
+
 
 tacticToBlah :: jdg -> TacticT jdg ext err s m a -> ProofState ext err s m (a, jdg)
 tacticToBlah jdg (TacticT t) = runStateT t jdg
 
+
 tactic2 :: (jdg -> ProofState ext err s m (a, jdg)) -> TacticT jdg ext err s m a
 tactic2 f = TacticT $ StateT $ f
+
 
 goal :: TacticT jdg ext err s m jdg
 goal = TacticT get
 
+
 throw :: err -> TacticT jdg ext err s m a
-throw err = TacticT $ lift $ ProofState $ \s _ _ _ _ raise _ _ -> raise s err
+throw err = TacticT $ lift $ ProofState $ \s _ _ _ raise _ _ -> raise s err
 
 
 subgoals
@@ -264,15 +270,14 @@ subgoals
     -> ProofState ext err s m jdg
     -> ProofState ext err s m jdg
 subgoals [] p = p
-subgoals tt@(t:ts) (ProofState p) =
-  ProofState $ \s sub comm ok cut raise eff alt ->
+subgoals (t:ts) (ProofState p) =
+  ProofState $ \s sub ok cut raise eff alt ->
     p
       s
       (\s' jdg k ->
         runProofState (applyCont (subgoals ts . k) $ t jdg)
-          s' sub comm ok cut raise eff alt
+          s' sub ok cut raise eff alt
       )
-      (\s' c1 c2 k -> comm s' c1 c2 $ subgoals tt . k)
       ok cut raise eff alt
 
 
@@ -283,44 +288,25 @@ subgoals tt@(t:ts) (ProofState p) =
     -> TacticT jdg ext err s m a
 TacticT t <@> ts =
   TacticT $ StateT $ \jdg ->
-    subgoals (fmap (\(TacticT t') (_, jdg') -> runStateT t' jdg') ts) $ runStateT t jdg
+    subgoals (fmap (\(TacticT t') (_, jdg') -> runStateT t' jdg') ts) $
+      runStateT t jdg
+
 
 
 kill
   :: forall s m a ext err r
-   . Monad m
-  => s
-  -> (s -> a -> (ext -> ProofState ext err s m a) -> m r)
-  -> (s -> ext -> m r)
-  -> m r
-  -> (s -> err -> m r)
-  -> (m (m r) -> m r)
-  -> (m r -> m r -> m r)
+   . s
+  -> (s -> a -> (ext -> ProofState ext err s m a) -> r)
+  -> (s -> ext -> r)
+  -> r
+  -> (s -> err -> r)
+  -> (m r -> r)
+  -> (r -> r -> r)
   -> ProofState ext err s m a
-  -> m r
+  -> r
 kill s sub ok cut raise eff alt (ProofState m) = do
   m
     s sub
-    (\s' c1 c2 k -> do
-      let run_c2
-            :: m r
-            -> (s -> err -> m r)
-            -> m r
-          run_c2 cut' raise' = do
-            kill s' sub ok cut' raise' eff alt
-              $ k =<< c2
-
-      kill
-        s'
-        (\s'' x k' -> kill s'' sub ok cut raise eff alt $ applyCont k' (pure x) >>= k)
-        ok
-        (run_c2 cut raise)
-        (\s1 err1 ->
-          run_c2
-            (raise s1 err1)
-            (\s2 err2 -> alt (raise s1 err1) (raise s2 err2)))
-        eff alt c1
-    )
     ok cut raise
     eff
     alt
@@ -349,17 +335,17 @@ ruleToProofState
     :: Functor m
     => Rule jdg ext err s m ext
     -> ProofState ext err s m jdg
-ruleToProofState r = ProofState $ \s sub comm ok cut raise eff alt ->
+ruleToProofState r = ProofState $ \s sub ok cut raise eff alt ->
   case r of
     Pure ext ->
       ok s ext
     SubgoalR jdg k ->
       sub s jdg $ \ext -> ruleToProofState (k ext)
     EffectR m ->
-      eff $ fmap (\r' -> runProofState (ruleToProofState r') s sub comm ok cut raise eff alt) m
+      eff $ fmap (\r' -> runProofState (ruleToProofState r') s sub ok cut raise eff alt) m
     StatefulR f ->
       let (s', r') = f s
-       in runProofState (ruleToProofState r') s' sub comm ok cut raise eff alt
+       in runProofState (ruleToProofState r') s' sub ok cut raise eff alt
 
 
 runTactic
@@ -378,12 +364,12 @@ sg
     -> TacticT jdg ext err s m a
 sg a k = do
   jdg <- goal
-  TacticT $ lift $ ProofState $ \s sub _ _ _ _ _ _ ->
+  TacticT $ lift $ ProofState $ \s sub _ _ _ _ _ ->
     sub s a $ fmap fst . tacticToBlah jdg . k
 
 
 axiom :: ext -> TacticT jdg ext err s m a
-axiom ext = TacticT $ lift $ ProofState $ \s _ _ ok _ _ _ _ ->
+axiom ext = TacticT $ lift $ ProofState $ \s _ ok _ _ _ _ ->
   ok s ext
 
 debug :: String -> ProofState ext err s m a -> ProofState ext err s m a
@@ -393,10 +379,9 @@ debug = debug' anythingToString anythingToString anythingToString
 debug' :: (ext -> String) -> (err -> String) -> (s -> String) -> String -> ProofState ext err s m a -> ProofState ext err s m a
 debug' showExt showErr showS lbl (ProofState p) = do
   let l = debugLog showExt showErr showS lbl
-  ProofState $ \s sub comm ok cut raise eff alt ->
+  ProofState $ \s sub ok cut raise eff alt ->
     p s
       (\s' a k     -> flip trace (sub s' a k)      $ l $ DbgSub s' $ anythingToString a)
-      (\s' c1 c2 k -> flip trace (comm s' c1 c2 k) $ l $ DbgComm s')
       (\s' ext     -> flip trace (ok s' ext)       $ l $ DbgOk s' ext)
       (               flip trace cut               $ l $ DbgCut)
       (\s' err     -> flip trace (raise s' err)    $ l $ DbgRaise s' err)
@@ -412,7 +397,6 @@ debugLog showExt showErr showS lbl item =
     , ": "
     , case item of
        (DbgSub s x)     -> "sub\n  - State " <> showS s <> "\n  - Value " <> x
-       (DbgComm s)      -> "comm\n  - State " <> showS s
        (DbgOk s ext)    -> "ok\n  - State " <> showS s <> "\n  - Extract " <> showExt ext
        DbgCut           -> "cut"
        (DbgRaise s err) -> "raise\n  - State " <> showS s <> "\n  - Error " <> showErr err
@@ -422,7 +406,6 @@ debugLog showExt showErr showS lbl item =
 
 data DbgItem ext err s
   = DbgSub s String
-  | DbgComm s
   | DbgOk s ext
   | DbgCut
   | DbgRaise s err

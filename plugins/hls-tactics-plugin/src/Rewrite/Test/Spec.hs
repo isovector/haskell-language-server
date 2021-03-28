@@ -9,7 +9,7 @@ import Rewrite
 import Rewrite.Test.Instances ()
 import Rewrite.Test.STLC
 import Test.Hspec
-import Test.Hspec.QuickCheck (prop, modifyMaxSuccess)
+import Test.Hspec.QuickCheck (prop, modifyMaxSuccess, modifyMaxSize)
 import Test.QuickCheck hiding (Result)
 import Test.QuickCheck.Checkers
 import Test.QuickCheck.Classes
@@ -37,7 +37,7 @@ type PS = ProofState Term String [Bool] (State Int) ()
 
 
 spec :: Spec
-spec = modifyMaxSuccess (const 10000) $ do
+spec = modifyMaxSuccess (const 1000) $ do
 
   prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) ->
     within (1e5) $
