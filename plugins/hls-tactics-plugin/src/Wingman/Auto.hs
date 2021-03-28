@@ -1,13 +1,13 @@
 module Wingman.Auto where
 
 import           Control.Monad.State (gets)
-import           Refinery.Tactic
 import           Wingman.Context
 import           Wingman.Judgements
 import           Wingman.KnownStrategies
 import           Wingman.Machinery (tracing)
 import           Wingman.Tactics
 import           Wingman.Types
+import Rewrite
 
 
 ------------------------------------------------------------------------------

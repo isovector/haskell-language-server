@@ -14,6 +14,7 @@ module Wingman.Types
   , Range
   ) where
 
+-- import           Refinery.Tactic
 import           ConLike (ConLike)
 import           Control.Lens hiding (Context)
 import           Control.Monad.Reader
@@ -33,7 +34,7 @@ import           Development.IDE.Types.Location
 import           GHC.Generics
 import           GHC.SourceGen (var)
 import           OccName
-import           Refinery.Tactic
+import           Rewrite
 import           System.IO.Unsafe (unsafePerformIO)
 import           Type (TCvSubst, Var, eqType, nonDetCmpType, emptyTCvSubst)
 import           UniqSupply (takeUniqFromSupply, mkSplitUniqSupply, UniqSupply)

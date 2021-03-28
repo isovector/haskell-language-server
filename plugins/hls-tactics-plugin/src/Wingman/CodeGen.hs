@@ -36,6 +36,7 @@ import           Wingman.Judgements.Theta
 import           Wingman.Machinery
 import           Wingman.Naming
 import           Wingman.Types
+import           Rewrite
 
 
 destructMatches
@@ -51,11 +52,11 @@ destructMatches f scrut t jdg = do
   let hy = jEntireHypothesis jdg
       g  = jGoal jdg
   case splitTyConApp_maybe $ unCType t of
-    Nothing -> throwError $ GoalMismatch "destruct" g
+    Nothing -> ThrowR $ GoalMismatch "destruct" g
     Just (tc, apps) -> do
       let dcs = tyConDataCons tc
       case dcs of
-        [] -> throwError $ GoalMismatch "destruct" g
+        [] -> ThrowR $ GoalMismatch "destruct" g
         _ -> fmap unzipTrace $ for dcs $ \dc -> do
           let con = RealDataCon dc
               ev = mapMaybe mkEvidence $ dataConInstArgTys dc apps
@@ -153,7 +154,7 @@ patSynExTys ps = patSynExTyVars ps
 
 destruct' :: (ConLike -> Judgement -> Rule) -> HyInfo CType -> Judgement -> Rule
 destruct' f hi jdg = do
-  when (isDestructBlacklisted jdg) $ throwError NoApplicableTactic
+  when (isDestructBlacklisted jdg) $ ThrowR NoApplicableTactic
   let term = hi_name hi
   ext
       <- destructMatches
@@ -172,13 +173,13 @@ destruct' f hi jdg = do
 -- resulting matches.
 destructLambdaCase' :: (ConLike -> Judgement -> Rule) -> Judgement -> Rule
 destructLambdaCase' f jdg = do
-  when (isDestructBlacklisted jdg) $ throwError NoApplicableTactic
+  when (isDestructBlacklisted jdg) $ ThrowR NoApplicableTactic
   let g  = jGoal jdg
   case splitFunTy_maybe (unCType g) of
     Just (arg, _) | isAlgType arg ->
       fmap (fmap noLoc lambdaCase) <$>
         destructMatches f Nothing (CType arg) jdg
-    _ -> throwError $ GoalMismatch "destructLambdaCase'" g
+    _ -> ThrowR $ GoalMismatch "destructLambdaCase'" g
 
 
 ------------------------------------------------------------------------------

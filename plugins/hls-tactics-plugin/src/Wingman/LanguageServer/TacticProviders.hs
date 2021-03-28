@@ -10,7 +10,6 @@ module Wingman.LanguageServer.TacticProviders
   ) where
 
 import           Control.Monad
-import           Control.Monad.Error.Class (MonadError (throwError))
 import           Data.Aeson
 import           Data.Bool (bool)
 import           Data.Coerce
@@ -34,7 +33,7 @@ import           Ide.Types
 import           Language.LSP.Types
 import           OccName
 import           Prelude hiding (span)
-import           Refinery.Tactic (goal)
+import Rewrite (goal, throw)
 
 
 ------------------------------------------------------------------------------
@@ -246,7 +245,7 @@ useNameFromHypothesis f name = do
   hy <- jHypothesis <$> goal
   case M.lookup name $ hyByName hy of
     Just hi -> f hi
-    Nothing -> throwError $ NotInScope name
+    Nothing -> throw $ NotInScope name
 
 
 ------------------------------------------------------------------------------

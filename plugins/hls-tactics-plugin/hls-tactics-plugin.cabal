@@ -48,9 +48,9 @@ library
     Wingman.Types
 
     Rewrite
-    Rewrite.Test.Spec
-    Rewrite.Test.Instances
-    Rewrite.Test.STLC
+    -- Rewrite.Test.Spec
+    -- Rewrite.Test.Instances
+    -- Rewrite.Test.STLC
 
   ghc-options:
     -Wall -Wno-name-shadowing -Wredundant-constraints -Wno-unticked-promoted-constructors

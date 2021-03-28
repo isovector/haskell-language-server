@@ -15,13 +15,13 @@ import GHC.SourceGen.Expr (case', lambda, let')
 import GHC.SourceGen.Overloaded (App ((@@)), HasList (list))
 import GHC.SourceGen.Pat (conP)
 import OccName (HasOccName (occName), mkVarOcc, occNameString)
-import Refinery.Tactic (goal, rule)
 import TyCon (TyCon, tyConDataCons, tyConName)
 import Type (splitTyConApp_maybe)
 import Wingman.CodeGen
 import Wingman.Judgements (jGoal)
 import Wingman.Machinery (tracePrim)
 import Wingman.Types
+import Rewrite
 
 
 ------------------------------------------------------------------------------
@@ -61,7 +61,7 @@ deriveArbitrary = do
                             (list $ fmap genExpr big)
                             terminal_expr
                     ]
-    _ -> throwError $ GoalMismatch "deriveArbitrary" ty
+    _ -> throw $ GoalMismatch "deriveArbitrary" ty
 
 
 ------------------------------------------------------------------------------

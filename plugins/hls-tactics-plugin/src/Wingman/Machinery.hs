@@ -24,15 +24,17 @@ import           Data.Set (Set)
 import qualified Data.Set as S
 import           Development.IDE.GHC.Compat
 import           OccName (HasOccName (occName))
-import           Refinery.ProofState
-import           Refinery.Tactic
-import           Refinery.Tactic.Internal
+-- import           Refinery.ProofState
+-- import           Refinery.Tactic
+-- import           Refinery.Tactic.Internal
+import Rewrite
 import           TcType
 import           Type
 import           Unify
 import           Wingman.Judgements
 import           Wingman.Simplify (simplify)
 import           Wingman.Types
+import Data.Tuple (swap)
 
 
 substCTy :: TCvSubst -> CType -> CType
@@ -75,12 +77,12 @@ runTactic ctx jdg t =
     in case partitionEithers
           . flip runReader ctx
           . unExtractM
-          $ runTacticT t jdg tacticState of
+          $ runTacticT tacticState jdg t of
       (errs, []) -> Left $ take 50 errs
-      (_, fmap assoc23 -> solns) -> do
+      (_, fmap swap -> solns) -> do
         let sorted =
-              flip sortBy solns $ comparing $ \(ext, (_, holes)) ->
-                Down $ scoreSolution ext jdg holes
+              flip sortBy solns $ comparing $ \(ext, _) ->
+                Down $ scoreSolution ext jdg []
         case sorted of
           ((syn, _) : _) ->
             Right $
@@ -121,18 +123,6 @@ markRecursion
     => TacticT jdg (Synthesized ext) err s m a
     -> TacticT jdg (Synthesized ext) err s m a
 markRecursion = mappingExtract (field' @"syn_recursion_count" <>~ 1)
-
-
-------------------------------------------------------------------------------
--- | Map a function over the extract created by a tactic.
-mappingExtract
-    :: Functor m
-    => (ext -> ext)
-    -> TacticT jdg ext err s m a
-    -> TacticT jdg ext err s m a
-mappingExtract f (TacticT m)
-  = TacticT $ StateT $ \jdg ->
-      mapExtract' f $ runStateT m jdg
 
 
 ------------------------------------------------------------------------------
@@ -220,7 +210,7 @@ unify goal inst = do
   case tryUnifyUnivarsButNotSkolems skolems goal inst of
     Just subst ->
       modify $ updateSubst subst
-    Nothing -> throwError (UnificationError inst goal)
+    Nothing -> ThrowR (UnificationError inst goal)
 
 
 ------------------------------------------------------------------------------
@@ -269,7 +259,7 @@ methodHypothesis ty = do
 --
 -- 'peek' should be exposed directly by @refinery@ in the next release.
 peek :: (ext -> TacticT jdg ext err s m ()) -> TacticT jdg ext err s m ()
-peek k = tactic $ \j -> Subgoal ((), j) $ \e -> proofState (k e) j
+peek k = pure () -- tactic $ \j -> Subgoal ((), j) $ \e -> proofState (k e) j
 
 
 ------------------------------------------------------------------------------
@@ -282,7 +272,7 @@ requireConcreteHole m = do
   let vars = S.fromList $ tyCoVarsOfTypeWellScoped $ unCType $ jGoal jdg
   case S.size $ vars S.\\ skolems of
     0 -> m
-    _ -> throwError TooPolymorphic
+    _ -> throw TooPolymorphic
 
 
 ------------------------------------------------------------------------------

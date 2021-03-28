@@ -7,7 +7,6 @@ import           ConLike (ConLike(RealDataCon))
 import           Control.Applicative (Alternative(empty))
 import           Control.Lens ((&), (%~), (<>~))
 import           Control.Monad (unless)
-import           Control.Monad.Except (throwError)
 import           Control.Monad.Reader.Class (MonadReader (ask))
 import           Control.Monad.State.Strict (StateT(..), runStateT)
 import           Data.Foldable
@@ -23,8 +22,6 @@ import           GHC.Exts
 import           GHC.SourceGen.Expr
 import           GHC.SourceGen.Overloaded
 import           Name (occNameString, occName)
-import           Refinery.Tactic
-import           Refinery.Tactic.Internal
 import           TcType
 import           Type hiding (Var)
 import           Wingman.CodeGen
@@ -34,6 +31,7 @@ import           Wingman.Judgements
 import           Wingman.Machinery
 import           Wingman.Naming
 import           Wingman.Types
+import Rewrite hiding (runTactic)
 
 
 ------------------------------------------------------------------------------
@@ -57,7 +55,7 @@ assume name = rule $ \jdg -> do
           { syn_trace = tracePrim $ "assume " <> occNameString name
           , syn_used_vals = S.singleton name
           }
-    Nothing -> throwError $ UndefinedHypothesis name
+    Nothing -> ThrowR $ UndefinedHypothesis name
 
 
 recursion :: TacticsM ()
@@ -87,7 +85,7 @@ intros = rule $ \jdg -> do
   let g  = jGoal jdg
   ctx <- ask
   case tcSplitFunTys $ unCType g of
-    ([], _) -> throwError $ GoalMismatch "intros" g
+    ([], _) -> ThrowR $ GoalMismatch "intros" g
     (as, b) -> do
       vs <- mkManyGoodNames (hyNamesInScope $ jEntireHypothesis jdg) as
       let top_hole = isTopHole ctx jdg
@@ -203,7 +201,7 @@ split = tracing "split(user)" $ do
   jdg <- goal
   let g = jGoal jdg
   case tacticsGetDataCons $ unCType g of
-    Nothing -> throwError $ GoalMismatch "split" g
+    Nothing -> throw $ GoalMismatch "split" g
     Just (dcs, _) -> choice $ fmap splitDataCon dcs
 
 
@@ -216,7 +214,7 @@ splitAuto = requireConcreteHole $ tracing "split(auto)" $ do
   jdg <- goal
   let g = jGoal jdg
   case tacticsGetDataCons $ unCType g of
-    Nothing -> throwError $ GoalMismatch "split" g
+    Nothing -> throw $ GoalMismatch "split" g
     Just (dcs, _) -> do
       case isSplitWhitelisted jdg of
         True -> choice $ fmap splitDataCon dcs
@@ -235,7 +233,7 @@ splitSingle = tracing "splitSingle" $ do
   case tacticsGetDataCons $ unCType g of
     Just ([dc], _) -> do
       splitDataCon dc
-    _ -> throwError $ GoalMismatch "splitSingle" g
+    _ -> throw $ GoalMismatch "splitSingle" g
 
 
 ------------------------------------------------------------------------------
@@ -262,7 +260,7 @@ splitConLike dc =
     case splitTyConApp_maybe $ unCType g of
       Just (_, apps) -> do
         buildDataCon True (unwhitelistingSplit jdg) dc apps
-      Nothing -> throwError $ GoalMismatch "splitDataCon" g
+      Nothing -> ThrowR $ GoalMismatch "splitDataCon" g
 
 ------------------------------------------------------------------------------
 -- | Attempt to instantiate the given data constructor to solve the goal.
@@ -305,8 +303,8 @@ userSplit occ = do
       case find (sloppyEqOccName occ . occName . dataConName)
              $ tyConDataCons tc of
         Just dc -> splitDataCon dc
-        Nothing -> throwError $ NotInScope occ
-    Nothing -> throwError $ NotInScope occ
+        Nothing -> throw $ NotInScope occ
+    Nothing -> throw $ NotInScope occ
 
 
 ------------------------------------------------------------------------------
@@ -334,7 +332,7 @@ refine = do
 
 
 auto' :: Int -> TacticsM ()
-auto' 0 = throwError NoProgress
+auto' 0 = throw NoProgress
 auto' n = do
   let loop = auto' (n - 1)
   try intros

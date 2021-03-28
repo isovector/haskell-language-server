@@ -2,12 +2,12 @@ module Wingman.KnownStrategies where
 
 import Control.Monad.Error.Class
 import OccName (mkVarOcc)
-import Refinery.Tactic
 import Wingman.Context (getCurrentDefinitions)
 import Wingman.KnownStrategies.QuickCheck (deriveArbitrary)
 import Wingman.Machinery (tracing)
 import Wingman.Tactics
 import Wingman.Types
+import Rewrite
 
 
 knownStrategies :: TacticsM ()
@@ -22,7 +22,7 @@ known name t = do
   getCurrentDefinitions >>= \case
     [(def, _)] | def == mkVarOcc name ->
       tracing ("known " <> name) t
-    _ -> throwError NoApplicableTactic
+    _ -> throw NoApplicableTactic
 
 
 deriveFmap :: TacticsM ()

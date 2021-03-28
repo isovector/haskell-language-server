@@ -16,48 +16,53 @@ import Data.Tuple (swap)
 import Debug.RecoverRTTI
 import Debug.Trace (trace)
 import Debug.Trace (traceM)
+import Control.Monad.Reader.Class
 
-data Rule jdg ext err s m a where
+data RuleT jdg ext err s m a where
+  ThrowR
+    :: err
+    -> RuleT jdg ext err s m a
   Pure
     :: a
-    -> Rule jdg ext err s m a
+    -> RuleT jdg ext err s m a
   SubgoalR
     :: jdg
-    -> (ext -> Rule jdg ext err s m a)
-    -> Rule jdg ext err s m a
+    -> (ext -> RuleT jdg ext err s m a)
+    -> RuleT jdg ext err s m a
   EffectR
-    :: m (Rule jdg ext err s m a)
-    -> Rule jdg ext err s m a
+    :: m (RuleT jdg ext err s m a)
+    -> RuleT jdg ext err s m a
   StatefulR
-    :: (s -> (s, Rule jdg ext err s m a))
-    -> Rule jdg ext err s m a
+    :: (s -> (s, RuleT jdg ext err s m a))
+    -> RuleT jdg ext err s m a
   deriving stock (Functor)
 
 
-deriving instance (Show a, Show jdg, Show (m (Rule jdg ext err s m a))) =>
-  Show (Rule jdg ext err s m a)
+deriving instance (Show err, Show a, Show jdg, Show (m (RuleT jdg ext err s m a))) =>
+  Show (RuleT jdg ext err s m a)
 
-instance Functor m => MonadState s (Rule jdg ext err s m) where
+instance Functor m => MonadState s (RuleT jdg ext err s m) where
   state s =  StatefulR $ fmap (fmap pure . swap) s
 
-instance MonadTrans (Rule jdg ext err s) where
+instance MonadTrans (RuleT jdg ext err s) where
   lift = EffectR . fmap pure
 
 
-instance Functor m => Applicative (Rule jdg ext err s m) where
+instance Functor m => Applicative (RuleT jdg ext err s m) where
   pure a = Pure a
   (<*>) = ap
 
 
-instance Functor m => Monad (Rule jdg ext err s m) where
+instance Functor m => Monad (RuleT jdg ext err s m) where
   return = pure
+  (>>=) (ThrowR err) _ = ThrowR err
   (>>=) (Pure a) f = f a
   (>>=) (SubgoalR jdg k) f = SubgoalR jdg $ f <=< k
   (>>=) (EffectR m) f = EffectR $ fmap (f =<<) m
   (>>=) (StatefulR m) f = StatefulR $ fmap (fmap (f =<<)) m
 
 
-subgoal :: Functor m => jdg -> Rule jdg ext err s m ext
+subgoal :: Functor m => jdg -> RuleT jdg ext err s m ext
 subgoal jdg = SubgoalR jdg pure
 
 
@@ -97,6 +102,16 @@ instance MonadState s (ProofState ext err s m) where
      in sub s' a $ \ext ->
           ProofState $ \s' _ ok' _ _ _ _ -> ok' s' ext
 
+instance MonadReader r m => MonadReader r (ProofState ext err s m) where
+  ask = lift ask
+  local f (ProofState p) =
+    ProofState $ \s sub ok cut raise eff alt ->
+      eff $ local f $ pure $ p s sub ok cut raise eff alt
+
+instance MonadReader r m => MonadReader r (RuleT jdg ext err s m) where
+  ask = lift ask
+  local f m = EffectR $ local f $ pure m
+
 
 instance Functor (ProofState ext err s m) where
   fmap f (ProofState fa) = ProofState $ \s sub ok cut raise eff alt ->
@@ -130,7 +145,10 @@ instance Monad (ProofState ext err s m) where
           cut raise eff alt)
       ok cut raise eff alt
 
-applyCont :: (ext -> ProofState ext err s m a) -> ProofState ext err s m a -> ProofState ext err s m a
+applyCont
+    :: (ext -> ProofState ext err s m a)
+    -> ProofState ext err s m a
+    -> ProofState ext err s m a
 applyCont k (ProofState m) = ProofState $ \s sub ok cut raise eff alt ->
   m
     s
@@ -151,8 +169,8 @@ data Result s err ext
 
 
 newtype TacticT jdg ext err s m a = TacticT
-  { unTactic2 :: StateT jdg (ProofState ext err s m) a
-  } deriving newtype (Functor, Applicative, Monad, Alternative, MonadPlus)
+  { unTacticT :: StateT jdg (ProofState ext err s m) a
+  } deriving newtype (Functor, Applicative, Monad, Alternative, MonadPlus, MonadReader r)
 
 instance MonadTrans (TacticT jdg ext err s) where
   lift = TacticT . lift . lift
@@ -307,16 +325,21 @@ proof s p =
     (liftA2 (<>))
 
 
-rule :: Functor m => Rule jdg ext err s m ext -> TacticT jdg ext err s m ()
-rule r = TacticT $ StateT $ const $ fmap ((),) $ ruleToProofState r
+rule :: Functor m => (jdg -> RuleT jdg ext err s m ext) -> TacticT jdg ext err s m ()
+rule r = TacticT $ StateT $ \jdg -> fmap ((),) $ ruleToProofState $ r jdg
+
+rule' :: Functor m => RuleT jdg ext err s m ext -> TacticT jdg ext err s m ()
+rule' = rule . const
 
 
 ruleToProofState
     :: Functor m
-    => Rule jdg ext err s m ext
+    => RuleT jdg ext err s m ext
     -> ProofState ext err s m jdg
 ruleToProofState r = ProofState $ \s sub ok cut raise eff alt ->
   case r of
+    ThrowR err ->
+      raise s err
     Pure ext ->
       ok s ext
     SubgoalR jdg k ->
@@ -336,6 +359,24 @@ runTactic
     -> m [Result s err ext]
 runTactic s jdg (TacticT t) =
   proof s (flip evalStateT jdg $ t)
+
+proof2 :: MonadExtract ext m => s -> ProofState ext err s m a -> m [Either err (s, ext)]
+proof2 s p = do
+  runProofState p s
+    (\s' _ x -> proof2 s' $ x =<< lift hole)
+    (\s -> pure . pure . Right . (s, ))
+    (pure [])
+    (const $ pure . pure . Left)
+    join
+    (liftA2 (<>))
+
+runTacticT
+    :: MonadExtract ext m
+    => s
+    -> jdg
+    -> TacticT jdg ext err s m a
+    -> m [Either err (s, ext)]
+runTacticT s jdg (TacticT m) = proof2 s $ execStateT m jdg
 
 
 proofgoals
@@ -435,4 +476,26 @@ data DbgItem ext err s
   | DbgRaise s err
   | DbgEff
   | DbgAlt
+
+mappingExtract
+    :: (ext -> ext)
+    -> TacticT jdg ext err s m a
+    -> TacticT jdg ext err s m a
+mappingExtract f (TacticT t) = TacticT $ StateT $ \jdg ->
+  ProofState $ \s sub ok cut raise eff alt ->
+    runProofState (runStateT t jdg)
+      s
+      sub
+      (\s' ext -> ok s' $ f ext)
+      cut
+      raise
+      eff
+      alt
+
+choice :: (Monad m) => [TacticT jdg ext err s m a] -> TacticT jdg ext err s m a
+choice [] = empty
+choice (t:ts) = t <|> choice ts
+
+try :: TacticT jdg ext err s m a -> TacticT jdg ext err s m a
+try t = t <|> empty
 
