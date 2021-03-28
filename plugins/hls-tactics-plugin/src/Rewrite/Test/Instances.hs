@@ -72,9 +72,9 @@ instance ( Arbitrary err
     where
       arb = oneof
         [
-          -- commit <$> scale (flip div 2) arbitrary
-          --        <*> scale (flip div 2) arbitrary
-          throw <$> arbitrary
+          commit <$> scale (flip div 2) arbitrary
+                 <*> scale (flip div 2) arbitrary
+        , throw <$> arbitrary
         , (<|>) <$> scale (flip div 2) arbitrary
                 <*> scale (flip div 2) arbitrary
         , pure empty

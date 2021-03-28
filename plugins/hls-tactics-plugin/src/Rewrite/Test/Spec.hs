@@ -37,7 +37,7 @@ type PS = ProofState Term String [Bool] (State Int) ()
 
 
 spec :: Spec
-spec = modifyMaxSuccess (const 10000) $ do
+spec = modifyMaxSuccess (const 1000) $ do
 
 --   prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) -> do
 --     t1 <@> repeat tt =-= (t1 >> tt)
