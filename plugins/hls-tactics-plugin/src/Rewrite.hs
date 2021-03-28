@@ -258,56 +258,6 @@ throw :: err -> TacticT jdg ext err s m a
 throw err = TacticT $ lift $ ProofState $ \s _ _ _ _ raise _ _ -> raise s err
 
 
-sequenceImmediateEffects :: forall m s ext err a. Monad m => s -> ProofState ext err s m a -> m (ProofState ext err s m a)
-sequenceImmediateEffects s (ProofState m) = do
-  m s
-    (\s' a k -> pure $ do
-      put s'
-      ProofState $ \s'' sub _ _ _ _ _ _ -> do
-        sub s'' a k
-      )
-    (\s' c1 c2 k -> pure $ do
-      put s'
-      ProofState $ \s'' _ comm _ _ _ _ _ -> comm s'' c1 c2 k)
-    (\s' ext -> pure $ do
-      put s'
-      ProofState $ \s'' _ _ ok _ _ _ _ -> ok s'' ext
-    )
-    (pure empty)
-    (\s' err -> pure $ do
-      put s'
-      ProofState $ \s'' _ _ _ _ raise _ _ -> raise s'' err
-    )
-    join
-
-      -- NOTE: this block fixes "commit x empty is x" and "commit rolls back state"
-      -- but fails "effects can be pulled off the left side"
-      -- (\mma -> pure $ do
-      -- !_ <- traceM "   {-"
-      -- r <- ProofState $ \s' sub comm ok cut raise eff alt ->
-      --   eff $ do
-      --     ma <- mma
-      --     a <- ma
-      --     kill
-      --       s'
-      --       (\s'' a k -> pure $ sub s'' a k)
-      --       (\s'' ext -> pure $ ok s'' ext)
-      --       (pure cut)
-      --       (\s'' err -> pure $ raise s'' err)
-      --       (\mma2 -> do
-      --         !_ <- traceM "!start join seq"
-      --         r <- join mma2
-      --         !_ <- traceM "!end join seq"
-      --         pure r
-      --       )
-      --       (liftA2 alt)
-      --       a
-      -- !_ <- traceM "   -}"
-      -- pure r
-    -- )
-    (liftA2 (<|>))
-
-
 kill
   :: forall s m a ext err r
    . Monad m
@@ -329,11 +279,9 @@ kill s sub ok cut raise eff alt (ProofState m) = do
             -> (s -> err -> m r)
             -> m r
           run_c2 cut' raise' = do
-            x2 <- sequenceImmediateEffects s' c2
             kill s' sub ok cut' raise' eff alt
-              $ k =<< x2
+              $ k =<< c2
 
-      x1 <- sequenceImmediateEffects s' c1
       kill
         s'
         (\s'' x k' -> kill s'' sub ok cut raise eff alt $ applyCont k' (pure x) >>= k)
@@ -343,7 +291,7 @@ kill s sub ok cut raise eff alt (ProofState m) = do
           run_c2
             (raise s1 err1)
             (\s2 err2 -> alt (raise s1 err1) (raise s2 err2)))
-        eff alt x1
+        eff alt c1
     )
     ok cut raise
     eff
