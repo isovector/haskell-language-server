@@ -179,7 +179,7 @@ instance (Show s, Monoid ext, Show a, Show ext, Show err, Monoid s, Show (m Stri
   show t =
     runProofState t
       mempty
-      (\s a k ->
+      (\s a _ ->
         mconcat
           [ "(put "
           , showsPrec 10 s ""
@@ -259,11 +259,12 @@ throw err = TacticT $ lift $ ProofState $ \s _ _ _ _ raise _ _ -> raise s err
 
 
 sequenceImmediateEffects :: forall m s ext err a. Monad m => s -> ProofState ext err s m a -> m (ProofState ext err s m a)
-sequenceImmediateEffects s (ProofState m) =
+sequenceImmediateEffects s (ProofState m) = do
   m s
     (\s' a k -> pure $ do
       put s'
-      ProofState $ \s'' sub _ _ _ _ _ _ -> sub s'' a k
+      ProofState $ \s'' sub _ _ _ _ _ _ -> do
+        sub s'' a k
       )
     (\s' c1 c2 k -> pure $ do
       put s'
@@ -277,21 +278,33 @@ sequenceImmediateEffects s (ProofState m) =
       put s'
       ProofState $ \s'' _ _ _ _ raise _ _ -> raise s'' err
     )
-    (\mma -> pure $
-      ProofState $ \s' sub comm ok cut raise eff alt ->
-        eff $ do
-          ma <- mma
-          a <- ma
-          kill
-            s'
-            (\s'' a k -> pure $ sub s'' a k)
-            (\s'' ext -> pure $ ok s'' ext)
-            (pure cut)
-            (\s'' err -> pure $ raise s'' err)
-            join
-            (liftA2 alt)
-            a
-    )
+    join
+
+      -- NOTE: this block fixes "commit x empty is x" and "commit rolls back state"
+      -- but fails "effects can be pulled off the left side"
+      -- (\mma -> pure $ do
+      -- !_ <- traceM "   {-"
+      -- r <- ProofState $ \s' sub comm ok cut raise eff alt ->
+      --   eff $ do
+      --     ma <- mma
+      --     a <- ma
+      --     kill
+      --       s'
+      --       (\s'' a k -> pure $ sub s'' a k)
+      --       (\s'' ext -> pure $ ok s'' ext)
+      --       (pure cut)
+      --       (\s'' err -> pure $ raise s'' err)
+      --       (\mma2 -> do
+      --         !_ <- traceM "!start join seq"
+      --         r <- join mma2
+      --         !_ <- traceM "!end join seq"
+      --         pure r
+      --       )
+      --       (liftA2 alt)
+      --       a
+      -- !_ <- traceM "   -}"
+      -- pure r
+    -- )
     (liftA2 (<|>))
 
 
@@ -345,7 +358,10 @@ proof s =
     (\s' ext -> pure $ pure $ Extract s' ext)
     (pure $ pure $ NoResult)
     (\_ err -> pure $ pure $ ErrorResult err)
-    join
+    (\ma -> do
+      r <- join ma
+      pure r
+    )
     (liftA2 (<>))
 
 
@@ -393,4 +409,47 @@ sg a k = do
 axiom :: ext -> TacticT jdg ext err s m a
 axiom ext = TacticT $ lift $ ProofState $ \s _ _ ok _ _ _ _ ->
   ok s ext
+
+debug :: String -> ProofState ext err s m a -> ProofState ext err s m a
+debug = debug' anythingToString anythingToString anythingToString
+
+
+debug' :: (ext -> String) -> (err -> String) -> (s -> String) -> String -> ProofState ext err s m a -> ProofState ext err s m a
+debug' showExt showErr showS lbl (ProofState p) = do
+  let l = debugLog showExt showErr showS lbl
+  ProofState $ \s sub comm ok cut raise eff alt ->
+    p s
+      (\s' a k     -> flip trace (sub s' a k)      $ l $ DbgSub s' $ anythingToString a)
+      (\s' c1 c2 k -> flip trace (comm s' c1 c2 k) $ l $ DbgComm s')
+      (\s' ext     -> flip trace (ok s' ext)       $ l $ DbgOk s' ext)
+      (               flip trace cut               $ l $ DbgCut)
+      (\s' err     -> flip trace (raise s' err)    $ l $ DbgRaise s' err)
+      (\mma        -> flip trace (eff mma)         $ l $ DbgEff)
+      (\r1 r2      -> flip trace (alt r1 r2)       $ l $ DbgAlt)
+
+
+debugLog :: (ext -> String) -> (err -> String) -> (s -> String) -> String -> DbgItem ext err s -> String
+debugLog showExt showErr showS lbl item =
+  mconcat
+    [ "> "
+    , lbl
+    , ": "
+    , case item of
+       (DbgSub s x)     -> "sub\n  - State " <> showS s <> "\n  - Value " <> x
+       (DbgComm s)      -> "comm\n  - State " <> showS s
+       (DbgOk s ext)    -> "ok\n  - State " <> showS s <> "\n  - Extract " <> showExt ext
+       DbgCut           -> "cut"
+       (DbgRaise s err) -> "raise\n  - State " <> showS s <> "\n  - Error " <> showErr err
+       DbgEff           -> "eff"
+       DbgAlt           -> "alt"
+    ]
+
+data DbgItem ext err s
+  = DbgSub s String
+  | DbgComm s
+  | DbgOk s ext
+  | DbgCut
+  | DbgRaise s err
+  | DbgEff
+  | DbgAlt
 

@@ -197,7 +197,17 @@ instance Arbitrary Type where
             ] <> terminal
 
 instance Show a => Show (StateT Int Identity a) where
-  show = show . flip runState 999
+  show st =
+    let s = 1337
+        (a, s') = runState st s
+     in mconcat
+      [ "effect ("
+      , show s
+      , " => "
+      , show s'
+      , ") "
+      , show a
+      ]
 
 instance Arbitrary Judgement where
   arbitrary = (:-) <$> scale (flip div 3) arbitrary <*> scale (flip div 2) arbitrary

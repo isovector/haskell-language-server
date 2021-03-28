@@ -12,6 +12,7 @@ import Control.Monad.State.Strict
 import GHC.Exts
 import Control.Applicative
 import GHC.Generics (Generic)
+import Debug.Trace (traceM)
 
 testJdg :: Judgement
 testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" (TPair "b" "c")
@@ -30,11 +31,19 @@ instance MonadExtract Term IO where
 proof2 :: MonadExtract ext m => s -> ProofState ext err s m a -> m [Either err (s, ext)]
 proof2 s = do
   kill s
-    (\s' _ x -> proof2 s' $ x =<< lift hole)
+    (\s' _ x -> do
+      r <- proof2 s' $ x =<< lift hole
+      pure r
+    )
     (\s -> pure . pure . Right . (s, ))
     (pure [])
     (const $ pure . pure . Left)
-    join
+    (\ma -> do
+      -- !_ <- traceM " <"
+      r <- join ma
+      -- !_ <- traceM " >"
+      pure r
+    )
     (liftA2 (<>))
 
 runTactic2

@@ -33,10 +33,47 @@ instance Monoid Int where
 
 type NoEffects = TacticT Judgement Term String Int Identity
 
-type PS = ProofState Term String (Sum Int) (State Int) ()
+type PS = ProofState Term String [Bool] (State Int) ()
+
+-- help :: Functor m => m (ProofState Term String Int m ()) -> ProofState Term String Int m ()
+-- help m = ProofState $ \s sub _ ok cut raise eff alt -> do
+--   eff $ do
+--     ps <- m
+--     kill s sub ok cut raise eff alt ps
+
 
 spec :: Spec
 spec = modifyMaxSuccess (const 1000) $ do
+
+  it "running an effect twice does it twice " $ do
+    let (e :: ProofStateTest ()) = lift $ modify (+1)
+    runState (proof 999 (e >> e)) 0 `shouldBe` ([Extract 999 Hole], 2)
+
+  it "sequenceImmediateEffects causes only one effect" $ do
+    let s = [True]
+    ( flip runState 0 $ do
+      let (e :: PS) = lift $ do
+            n <- get
+            !_ <- traceM $ "getting called " <> show n
+            modify (+1)
+      ps <- sequenceImmediateEffects s e
+      !_ <- traceM $ show ps
+      proof s (ps >> ps)) `shouldBe` ([Extract s Hole], 1)
+
+  it "sequenceImmediateEffects doesnt peek under rules" $ do
+    let s = [True]
+    ( flip runState 0 $ do
+      let (e :: PS) = do
+            n <- lift get
+            !_ <- traceM $ "getting called " <> show n
+            _ <- ruleToProofState $ do
+              g <- subgoal testJdg
+              lift $ modify (+1)
+              pure g
+            pure ()
+      ps <- sequenceImmediateEffects s e
+      !_ <- traceM $ show ps
+      proof s (ps >> ps)) `shouldBe` ([Extract s Hole], 2)
 
 --   prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) -> do
 --     t1 <@> repeat tt =-= (t1 >> tt)
