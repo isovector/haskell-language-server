@@ -77,12 +77,12 @@ instance ( Arbitrary err
           throw <$> arbitrary
         , (<|>) <$> scale (flip div 2) arbitrary
                 <*> scale (flip div 2) arbitrary
-        , pure empty
-        , catch <$> scale (flip div 2) arbitrary
-                <*> scale (flip div 2) arbitrary
-        , (>>) <$> (arbitrary @(TacticT jdg ext err s m Int))
-               <*> scale (flip div 2) arbitrary
-        , pure <$> arbitrary
+        -- , pure empty
+        -- , catch <$> scale (flip div 2) arbitrary
+        --         <*> scale (flip div 2) arbitrary
+        -- , (>>) <$> (arbitrary @(TacticT jdg ext err s m Int))
+        --        <*> scale (flip div 2) arbitrary
+        -- , pure <$> arbitrary
         , case eqT @a @() of
             Just Refl -> fmap rule arbitrary
             Nothing -> pure <$> arbitrary

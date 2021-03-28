@@ -212,20 +212,40 @@ type TIO = TacticT Judgement Term String Int IO
 
 test :: IO ()
 test = do
-  let i = ()
-      (t1 :: TIO ()) = do
+  let (r :: TIO ()) = do
         rule $ do
-          ext <- subgoal $ [] :- TVar "a"
-          ext2 <- subgoal $ [] :- TVar "b"
+          put 1000
+          lift $ putStrLn "brain hurts"
+          ext <- subgoal testJdg
+          ext2 <- subgoal testJdg
           pure $ Pair ext ext2
-      (t2 :: TIO ()) = do
-        pure ()
-      (t3 :: TIO ()) = do
-        axiom $ Var "goodbye"
 
 
 
-  print =<< (runTactic2 3 testJdg $ t1 >> (t2 >> t3))
-  print =<< (runTactic2 3 testJdg $ (t1 >> t2) >> t3)
 
+  print =<< (runTactic2 3 testJdg $ r)
+  print =<< (runTactic2 3 testJdg $ commit r empty)
+
+--  1) distrib of tactic
+--        Falsified (after 351 tests):
+--          (put (-2) >> axiom (Lam "{\491551\USP" (Var "\aP")))
+--          (put 2 >> axiom (Var "]^>rT"))
+--          ((put (-4) >> axiom (Hole)) <|> ((put 0 >> throw "e$!'B") <|> ((put 0 >> throw "
+-- %.~}\111300f") <|> ((put 0 >> throw "l\368034\803593") <|> ("(put 0 >> axiom (Var \"\"))"
+-- ,1)))))
+--          ([Right (-1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Right
+-- (1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Right (-1,Hole),Left "e$
+-- !'B",Left "%.~}\111300f",Left "l\368034\803593",Right (1,Hole),Left "e$!'B",Left "%.~}\11
+-- 1300f",Left "l\368034\803593",Right (-1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\36
+-- 8034\803593",Right (1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Right
+--  (1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Right (-1,Hole),Left "e
+-- $!'B",Left "%.~}\111300f",Left "l\368034\803593",Right (1,Hole),Left "e$!'B",Left "%.~}\1
+-- 11300f",Left "l\368034\803593",Right (-1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\3
+-- 68034\803593",Right (1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Righ
+-- t (1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Right (-1,Hole),Left "
+-- e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Right (1,Hole),Left "e$!'B",Left "%.~}\
+-- 111300f",Left "l\368034\803593",Right (-1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\
+-- 368034\803593",Right (1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Rig
+-- ht (-1,Hole),Left "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Right (1,Hole),Left
+-- "e$!'B",Left "%.~}\111300f",Left "l\368034\803593",Right (1,Ho
 

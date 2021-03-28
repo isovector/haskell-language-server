@@ -325,7 +325,7 @@ kill s sub ok cut raise eff alt (ProofState m) = do
       x1 <- sequenceImmediateEffects s' c1
       kill
         s'
-        (\s'' x k' -> kill s'' sub ok cut raise eff alt $ k x)
+        (\s'' x k' -> kill s'' sub ok cut raise eff alt $ applyCont k' (pure x) >>= k)
         ok
         (run_c2 cut raise)
         (\s1 err1 ->
