@@ -43,11 +43,11 @@ spec = modifyMaxSuccess (const 1000) $ do
     within (1e5) $
       t1 <@> repeat tt =-= (t1 >> tt)
 
---   prop "pruning t (const . Just) is t >> throw" $ \(t :: NoEffects ()) e ->
---     pruning t (const $ Just e) =-= (t >> throw e)
+  prop "pruning t (const . Just) is t >> throw" $ \(t :: NoEffects ()) e ->
+    (pruning t (const $ Just e)) =-= (t >> throw e :: NoEffects ())
 
---   prop "pruning (const Nothing) is id" $ \(t :: TT) ->
---     pruning t (const Nothing) =-= t
+  prop "pruning (const Nothing) is id" $ \(t :: TT) ->
+    pruning t (const Nothing) =-= t
 
   prop "<@> of [] is id" $ \(t1 :: TT) ->
     within (1e5) $

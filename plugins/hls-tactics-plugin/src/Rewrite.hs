@@ -338,6 +338,45 @@ runTactic s jdg (TacticT t) =
   proof s (flip evalStateT jdg $ t)
 
 
+proofgoals
+    :: Functor m
+    => ([jdg] -> Maybe err)
+    -> s
+    -> ProofState ext err s m jdg
+    -> ([jdg] -> ProofState ext err s m jdg)
+proofgoals f s (ProofState p) =
+  p s
+    (\s' jdg k goals ->
+      ProofState $ \_ sub _ _ _ _ _ ->
+        sub s' jdg $ \ext -> proofgoals f s' (k ext) $ jdg : goals
+      )
+    (\s' ext goals ->
+      ProofState $ \_ _ ok _ raise _ _ ->
+        case f goals of
+          Just err -> raise s' err
+          Nothing  -> ok s' ext
+      )
+    (const empty)
+    (\s' err -> const $ ProofState $ \_ _ _ _ raise _ _ -> raise s' err)
+    (\ma goals -> ProofState $ \s sub ok cut raise eff alt->
+        eff $ fmap (\gp -> runProofState (gp goals) s sub ok cut raise eff alt) ma)
+    (liftA2 (<|>))
+
+
+pruning
+    :: MonadExtract ext m
+    => TacticT jdg ext err s m ()
+    -> ([jdg] -> Maybe err)
+    -> TacticT jdg ext err s m ()
+pruning (TacticT t) f = do
+  s <- get
+  TacticT $ StateT $ \jdg -> do
+    let t' = execStateT t jdg
+    fmap ((),) $ proofgoals f s t' []
+
+
+
+
 sg
     :: a
     -> (ext -> TacticT jdg ext err s m a)

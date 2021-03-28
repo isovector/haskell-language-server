@@ -13,6 +13,7 @@ import GHC.Exts
 import Control.Applicative
 import GHC.Generics (Generic)
 import Debug.Trace (traceM)
+import Data.Functor.Identity (Identity)
 
 testJdg :: Judgement
 testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" (TPair "b" "c")
@@ -22,6 +23,9 @@ instance MonadExtract Term (State Int) where
   hole = do
     modify (+1)
     pure $ Hole
+
+instance MonadExtract Term Identity where
+  hole = pure $ Hole
 
 instance MonadExtract Term IO where
   hole = do

@@ -176,10 +176,9 @@ instance ( Arbitrary s
 
 instance {-# OVERLAPPING #-}
          ( Arbitrary s
-         , Monad m
          , EqProp (m [Either err (s, Term)])
          , Show (m [Either err (s, Term)])
-         , m ~ State Int
+         , MonadExtract Term m
          ) => EqProp (TacticT Judgement Term err s m a) where
   a =-= b = property $ do
     s <- arbitrary @s
