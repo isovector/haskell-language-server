@@ -213,10 +213,19 @@ type TIO = TacticT Judgement Term String Int IO
 test :: IO ()
 test = do
   let i = ()
-      (t1 :: TIO ()) = put 0 <|> lift (putStrLn "io")
+      (t1 :: TIO ()) = do
+        rule $ do
+          ext <- subgoal $ [] :- TVar "a"
+          ext2 <- subgoal $ [] :- TVar "b"
+          pure $ Pair ext ext2
+      (t2 :: TIO ()) = do
+        pure ()
+      (t3 :: TIO ()) = do
+        axiom $ Var "goodbye"
 
 
-  print =<< (runTactic2 3 testJdg $ t1)
-  print =<< (runTactic2 3 testJdg $ commit t1 empty)
+
+  print =<< (runTactic2 3 testJdg $ t1 >> (t2 >> t3))
+  print =<< (runTactic2 3 testJdg $ (t1 >> t2) >> t3)
 
 

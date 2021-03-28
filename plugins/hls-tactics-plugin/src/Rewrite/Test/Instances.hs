@@ -68,9 +68,6 @@ instance ( Arbitrary err
          ) => Arbitrary (TacticT jdg ext err s m a) where
   arbitrary = oneof
     [ arb
-    -- , case eqT @a @() of
-    --     Just Refl -> fmap rule arbitrary
-    --     Nothing -> arb
     ]
     where
       arb = oneof

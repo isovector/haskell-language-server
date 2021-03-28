@@ -117,31 +117,46 @@ instance Applicative (ProofState ext err s m) where
   pure a = ProofState $ \s sub _ _ _ _ _ _ ->
     sub s a $ \ext ->
       ProofState $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
-  ProofState f <*> blah@(ProofState a) = ProofState $ \s sub comm ok cut raise eff alt ->
-    f s
-      (\s' ab k ->
-        a
-          s'
-          (\s'' a k' -> sub s'' (ab a) $ liftA2 (<*>) k k')
-          (\s'' c1 c2 k' -> comm s'' c1 c2 $ \x -> fmap ab $ k' x)
-          ok cut raise eff alt)
-      (\s' c1 c2 k -> comm s' c1 c2 $ \x -> k x <*> blah)
-      ok cut raise eff alt
+  (<*>) = ap
+  -- ProofState f <*> blah@(ProofState a) = ProofState $ \s sub comm ok cut raise eff alt ->
+  --   f s
+  --     (\s' ab k ->
+  --       a
+  --         s'
+  --         (\s'' a k' -> sub s'' (ab a) $ liftA2 (<*>) k k')
+  --         (\s'' c1 c2 k' -> comm s'' c1 c2 $ \x -> fmap ab $ k' x)
+  --         ok cut raise eff alt)
+  --     (\s' c1 c2 k -> comm s' c1 c2 $ \x -> k x <*> blah)
+  --     ok cut raise eff alt
 
 instance Monad (ProofState ext err s m) where
   return = pure
   ProofState ma >>= f = ProofState $ \s sub comm ok cut raise eff alt ->
     ma s
       (\s' a k ->
-        runProofState (f a)
-          s' sub
+        runProofState (applyCont (f <=< k) $ f a)
+          s'
+          sub
           comm
-          (\s' ext ->
+          (\s'' ext ->
             runProofState (k ext >>= f)
-              s' sub comm ok cut raise eff alt)
+              s'' sub comm ok cut raise eff alt)
           cut raise eff alt)
       (\s' c1 c2 k -> comm s' c1 c2 $ k >=> f)
       ok cut raise eff alt
+
+applyCont :: (ext -> ProofState ext err s m a) -> ProofState ext err s m a -> ProofState ext err s m a
+applyCont k (ProofState m) = ProofState $ \s sub comm ok cut raise eff alt ->
+  m
+    s
+    (\s' a k' -> sub s' a $ applyCont k . k')
+    (\s' c1 c2 k' -> comm s' c1 c2 $ applyCont k . k')
+    (\s' ext -> runProofState (k ext) s' sub comm ok cut raise eff alt)
+    cut
+    raise
+    eff
+    alt
+
 
 
 data Result s err ext
@@ -310,7 +325,7 @@ kill s sub ok cut raise eff alt (ProofState m) = do
       x1 <- sequenceImmediateEffects s' c1
       kill
         s'
-        (\s'' x _ -> kill s'' sub ok cut raise eff alt $ k x)
+        (\s'' x k' -> kill s'' sub ok cut raise eff alt $ k x)
         ok
         (run_c2 cut raise)
         (\s1 err1 ->
