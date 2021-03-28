@@ -1,5 +1,7 @@
+{-# LANGUAGE BangPatterns #-}
 module Rewrite.Test.Spec where
 
+import GHC.Generics
 import Control.Applicative
 import Control.Monad.State.Strict
 import Data.Foldable
@@ -7,30 +9,49 @@ import Rewrite
 import Rewrite.Test.Instances ()
 import Rewrite.Test.STLC
 import Test.Hspec
-import Test.Hspec.QuickCheck (prop)
+import Test.Hspec.QuickCheck (prop, modifyMaxSuccess)
 import Test.QuickCheck hiding (Result)
 import Test.QuickCheck.Checkers
 import Test.QuickCheck.Classes
+import Data.Functor.Identity
+import Debug.RecoverRTTI (anythingToString)
+import Debug.Trace (trace, traceM)
+import Data.Monoid
 
 
 
-type ProofStateTest = ProofState Term String Int (State Int)
-type TacticTest = TacticT Judgement Term String Int (State Int)
-type RuleTest = Rule Judgement Term String Int (State Int)
+type ProofStateTest = ProofState Term String (Int) (State Int)
+type TacticTest = TacticT Judgement Term String (Int) (State Int)
+type RuleTest = Rule Judgement Term String (Int) (State Int)
+
+instance Semigroup Int where
+  (<>) = (+)
+
+instance Monoid Int where
+  mempty = 0
+
+
+type NoEffects = TacticT Judgement Term String Int Identity
+
+type PS = ProofState Term String (Sum Int) (State Int) ()
 
 spec :: Spec
-spec = do
-  prop "pruning (const Nothing) is id" $ \(t :: TT) ->
-      pruning t (const Nothing) =-= t
+spec = modifyMaxSuccess (const 1000) $ do
 
-  prop "pruning t (const . Just) is t >> throw" $ \(t :: TT) e ->
-      pruning t (const $ Just e) =-= (t >> throw e)
+--   prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) -> do
+--     t1 <@> repeat tt =-= (t1 >> tt)
 
-  prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) ->
-    t1 <@> repeat tt =-= (t1 >> tt)
+--   prop "pruning t (const . Just) is t >> throw" $ \(t :: NoEffects ()) e ->
+--     pruning t (const $ Just e) =-= (t >> throw e)
 
-  prop "<@> of [] is id" $ \(t1 :: TT) ->
-    t1 <@> [] =-= t1
+--   prop "pruning (const Nothing) is id" $ \(t :: TT) ->
+--     pruning t (const Nothing) =-= t
+
+--   prop "<@> of [] is id" $ \(t1 :: TT) ->
+--     t1 <@> [] =-= t1
+
+  prop "distrib of tactic" $ \(t1 :: TT) (t2 :: TT) (t3 :: TT) ->
+    (t1 >> (t2 >> t3)) =-= ((t1 >> t2) >> t3)
 
   prop "pull effects out of the left side" $ \(t1 :: TT) (t2 :: TT) e ->
     commit (lift e >> t1) t2 =-= ((lift e :: TT) >> commit t1 t2)
@@ -113,20 +134,20 @@ spec = do
       (commit t1 t2 >>= t3)
         =-= (t1 >>= t3) `commit` (t2 >>= t3)
 
-  describe "proofstate" $ do
-    testBatch $ functor     (undefined :: ProofStateTest (Int, Int, Int))
-    testBatch $ applicative (undefined :: ProofStateTest (Int, Int, Int))
-    testBatch $ alternative (undefined :: ProofStateTest Int)
-    testBatch $ monad       (undefined :: ProofStateTest (Int, Int, Int))
-    testBatch $ monadPlus   (undefined :: ProofStateTest (Int, Int))
-    testBatch $ monadState  (undefined :: ProofStateTest (Int, Int))
+--   describe "proofstate" $ do
+--     testBatch $ functor     (undefined :: ProofStateTest (Int, Int, Int))
+--     testBatch $ applicative (undefined :: ProofStateTest (Int, Int, Int))
+--     testBatch $ alternative (undefined :: ProofStateTest Int)
+--     testBatch $ monad       (undefined :: ProofStateTest (Int, Int, Int))
+--     testBatch $ monadPlus   (undefined :: ProofStateTest (Int, Int))
+--     testBatch $ monadState  (undefined :: ProofStateTest (Int, Int))
 
-  describe "proofstate" $ do
+  describe "rule" $ do
     testBatch $ functor     (undefined :: RuleTest (Term, Term, Term))
     testBatch $ applicative (undefined :: RuleTest (Term, Term, Term))
     testBatch $ monad       (undefined :: RuleTest (Term, Term, Term))
 
-  describe "proofstate" $ do
+  describe "tactic" $ do
     testBatch $ functor     (undefined :: TacticTest ((), (), ()))
     testBatch $ applicative (undefined :: TacticTest ((), (), ()))
     testBatch $ alternative (undefined :: TacticTest ())
@@ -184,12 +205,18 @@ monadState _ =
     ]
   )
 
+traceShowAnything :: a -> a
+traceShowAnything a = trace (anythingToString a) a
 
-testBetter :: IO ()
-testBetter = do
-  let x :: TacticT Judgement Term String [Bool] IO ()
-      x = (rule $ subgoal ([] :- TVar "hole") <* lift (putStrLn "1"))
-            <|> lift (putStrLn "2")
-  print =<< runTactic2 [True] testJdg (pruning x $ const $ Just "e")
-  print =<< runTactic2 [True] testJdg (x >> throw "e")
+type TIO = TacticT Judgement Term String Int IO
+
+test :: IO ()
+test = do
+  let i = ()
+      (t1 :: TIO ()) = put 0 <|> lift (putStrLn "io")
+
+
+  print =<< (runTactic2 3 testJdg $ t1)
+  print =<< (runTactic2 3 testJdg $ commit t1 empty)
+
 

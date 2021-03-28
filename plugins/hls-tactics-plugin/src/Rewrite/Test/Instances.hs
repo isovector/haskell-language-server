@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE UndecidableInstances               #-}
 {-# OPTIONS_GHC -fno-warn-orphans               #-}
 
@@ -12,13 +13,16 @@ import Data.Functor.Identity
 import Data.Data (Typeable, eqT, (:~:) (Refl))
 import Debug.RecoverRTTI (anythingToString)
 import Data.Function (on)
+import Debug.Trace (traceM)
+import Control.Applicative ((<|>), Alternative (empty))
 
-instance Eq (TacticT jdg ext err s m a) where
-  (==) = (==) `on` anythingToString
+instance (MonadExtract ext m, Monoid jdg, Monoid s, Ord (m [Result s err ext]))
+  => Eq (TacticT jdg ext err s m a) where
+  a == b  = compare a b == EQ
 
-instance Ord (TacticT jdg ext err s m a) where
-  compare = compare `on` anythingToString
-
+instance (MonadExtract ext m, Monoid jdg, Monoid s, Ord (m [Result s err ext])) => Ord (TacticT jdg ext err s m a) where
+  compare = do
+    compare `on` runTactic mempty mempty
 
 instance CoArbitrary Judgement where
   coarbitrary (hy :- g) = coarbitrary (hy, g)
@@ -30,7 +34,7 @@ instance CoArbitrary Type where
 
 instance CoArbitrary Term where
   coarbitrary (Var l_c) = variant @Int 0 . coarbitrary l_c
-  coarbitrary (Hole) = variant @Int 1
+  coarbitrary (Hole ) = variant @Int 1
   coarbitrary (Lam l_c t) = variant @Int 2 . coarbitrary (l_c, t)
   coarbitrary (Pair t t2) = variant @Int 3 . coarbitrary (t, t2)
 
@@ -52,87 +56,80 @@ instance ( Arbitrary err
          , Arbitrary a
          , CoArbitrary s
          , Arbitrary s
-         , Arbitrary (m (ProofState ext err s m a))
-         , Arbitrary (m (ProofState ext err s m Int))
-         ) => Arbitrary (ProofState ext err s m a) where
-  arbitrary =
-    let terminal = [pure Empty, Throw <$> arbitrary, Axiom <$> arbitrary]
-     in sized $ \n -> case n <= 1 of
-          True  -> oneof terminal
-          False -> oneof $
-            [ Subgoal <$> arbitrary <*> scale (flip div 2) arbitrary
-            , Effect <$> scale (flip div 2) arbitrary
-            , Stateful <$> scale (flip div 2) arbitrary
-            , Alt <$> scale (flip div 2) arbitrary
-                  <*> scale (flip div 2) arbitrary
-            , Commit <$> scale (flip div 3) (arbitrary @(ProofState ext err s m Int))
-                     <*> scale (flip div 3) arbitrary
-                     <*> scale (flip div 3) arbitrary
-            , Handle <$> scale (flip div 3) (arbitrary @(ProofState ext err s m Int))
-                     <*> scale (flip div 3) arbitrary
-                     <*> scale (flip div 3) arbitrary
-            ] <> terminal
-  shrink (Subgoal a fextpexterrsma) = Subgoal <$> shrink a <*> shrink fextpexterrsma
-  shrink (Effect mpexterrsma) = mappend [Empty] $ Effect <$> shrink mpexterrsma
-  shrink (Stateful fsp_spexterrsma) = mappend [Empty] $ Stateful <$> shrink fsp_spexterrsma
-  shrink (Alt pexterrsma4 pexterrsma5) = mconcat $
-    [ shrink pexterrsma4
-    , shrink pexterrsma5
-    , Alt pexterrsma4 <$> shrink pexterrsma5
-    ]
-  shrink (Commit pexterrsmx pexterrsmx5 fxpexterrsma) = [Empty]
-  shrink Empty = []
-  shrink (Handle pexterrsmx ferrpexterrsmx fxpexterrsma) = [Empty]
-  shrink (Throw err) = Throw <$> shrink err
-  shrink (Axiom ext) = Axiom <$> shrink ext
-
-instance ( Arbitrary err
-         , CoArbitrary err
-         , Arbitrary ext
-         , CoArbitrary ext
-         , Arbitrary a
-         , CoArbitrary s
-         , Arbitrary s
-         , Arbitrary (m (ProofState ext err s m a))
-         , Arbitrary (m (ProofState ext err s m Int))
          , Typeable a
-         , Functor m
+         , Typeable ext
+         , Monad m
          , Arbitrary jdg
          , CoArbitrary jdg
-         , Arbitrary (m (ProofState ext err s m (a, jdg)))
          , Arbitrary (m (Rule jdg ext err s m ext))
+         , Arbitrary (m (Rule jdg ext err s m Int))
+         , Arbitrary (m Int)
+         , Arbitrary (m ext)
          ) => Arbitrary (TacticT jdg ext err s m a) where
   arbitrary = oneof
     [ arb
-    , case eqT @a @() of
-        Just Refl -> fmap rule arbitrary
-        Nothing -> arb
+    -- , case eqT @a @() of
+    --     Just Refl -> fmap rule arbitrary
+    --     Nothing -> arb
     ]
     where
-      arb = TacticT . lift <$> arbitrary
-  shrink (TacticT (StateT t)) = fmap (TacticT . StateT) $ shrink t
+      arb = oneof
+        [
+          -- commit <$> scale (flip div 2) arbitrary
+          --        <*> scale (flip div 2) arbitrary
+          throw <$> arbitrary
+        , (<|>) <$> scale (flip div 2) arbitrary
+                <*> scale (flip div 2) arbitrary
+        , pure empty
+        , catch <$> scale (flip div 2) arbitrary
+                <*> scale (flip div 2) arbitrary
+        , (>>) <$> (arbitrary @(TacticT jdg ext err s m Int))
+               <*> scale (flip div 2) arbitrary
+        , pure <$> arbitrary
+        , case eqT @a @() of
+            Just Refl -> fmap rule arbitrary
+            Nothing -> pure <$> arbitrary
+        ]
 
 instance  ( Arbitrary a
           , Arbitrary jdg
           , CoArbitrary s
           , Arbitrary s
           , Arbitrary (m (Rule jdg ext err s m a))
+          , Arbitrary (m (Rule jdg ext err s m Int))
+          , Arbitrary (m (Rule jdg ext err s m ext))
           , CoArbitrary ext
+          , Typeable a
+          , Typeable ext
+          , Monad m
+          , Arbitrary ext
+          , Arbitrary (m a)
+          , Arbitrary (m ext)
+          , Arbitrary (m Int)
           ) => Arbitrary (Rule jdg ext err s m a) where
   arbitrary
-    = let terminal = [Pure <$> arbitrary]
+    = let terminal = [pure <$> arbitrary]
       in sized $ \n -> case n <= 1 of
            True  -> oneof terminal
            False -> oneof $
-            [ SubgoalR <$> arbitrary <*> scale (flip div 2) arbitrary
-            , EffectR <$> scale (flip div 2) arbitrary
+            [
+              case eqT @a @ext of
+                Just Refl -> subgoal <$> arbitrary
+                Nothing -> pure <$> arbitrary
+            , (>>) <$> (arbitrary @(Rule jdg ext err s m ext))
+                   <*> scale (flip div 2) arbitrary
+            , lift <$> scale (flip div 2) arbitrary
             , StatefulR <$> scale (flip div 2) arbitrary
             ] <> terminal
 
-instance (Arbitrary s, EqProp s, EqProp a) => EqProp (State s a) where
+instance (EqProp a, EqProp s, Eq a, Eq s, Show s, Show a, Arbitrary s) => EqProp (State s a) where
   a =-= b = property $ do
     s <- arbitrary
-    pure $ runState a s =-= runState b s
+    let sa = runState a s
+        sb = runState b s
+    -- pure $ counterexample (show sa) $
+    --   counterexample (show sb) $
+    pure $ sa =-= sb
 
 instance (CoArbitrary s, Arbitrary a, Arbitrary s) => Arbitrary (State s a) where
   arbitrary = oneof
@@ -143,7 +140,7 @@ instance (CoArbitrary s, Arbitrary a, Arbitrary s) => Arbitrary (State s a) wher
 
 
 instance ( Arbitrary s
-         , EqProp (m [Result s jdg err ext])
+         , EqProp (m [Result s err ext])
          , MonadExtract ext m
          ) => EqProp (ProofState ext err s m jdg) where
   a =-= b = property $ do
@@ -157,23 +154,37 @@ instance ( Monad m
 
 instance ( Arbitrary s
          , Arbitrary jdg
-         , EqProp (m [Result s jdg err ext])
+         , EqProp (m [Result s err ext])
+         , Show (m [Result s err ext])
          , MonadExtract ext m
          ) => EqProp (TacticT jdg ext err s m a) where
   a =-= b = property $ do
     s <- arbitrary @s
     jdg <- arbitrary @jdg
-    pure $ runTactic s jdg a =-= runTactic s jdg b
+    let ma = runTactic s jdg a
+        mb = runTactic s jdg b
+    pure $
+      counterexample (show ma) $
+        counterexample (show mb) $
+          ma =-= mb
 
 instance {-# OVERLAPPING #-}
          ( Arbitrary s
          , Monad m
          , EqProp (m [Either err (s, Term)])
+         , Show (m [Either err (s, Term)])
+         , m ~ State Int
          ) => EqProp (TacticT Judgement Term err s m a) where
   a =-= b = property $ do
     s <- arbitrary @s
     jdg <- arbitrary @Judgement
-    pure $ runTactic2 @m s jdg a =-= runTactic2 s jdg b
+    let ma = runTactic2 s jdg a
+        mb = runTactic2 s jdg b
+    pure $
+      counterexample (show ma) $
+        counterexample (show mb) $
+          ma =-= mb
+
 
 instance Arbitrary Type where
   arbitrary
@@ -194,7 +205,12 @@ instance Show a => Show (StateT Int Identity a) where
 instance Arbitrary Judgement where
   arbitrary = (:-) <$> scale (flip div 3) arbitrary <*> scale (flip div 2) arbitrary
 
-instance (EqProp s, EqProp jdg, EqProp err, EqProp ext) => EqProp (Result s jdg err ext)
+instance (Eq err, Show err, Eq ext, Show ext, Eq s, Show s) => EqProp (Result s err ext) where
+  (=-=) a b = property $
+    counterexample (show a) $
+    counterexample (show b) $
+      a === b
+
 instance EqProp Term
 instance EqProp Judgement
 instance EqProp Type

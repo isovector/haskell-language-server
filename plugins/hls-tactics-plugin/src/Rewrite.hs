@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE StandaloneDeriving     #-}
 {-# LANGUAGE TupleSections          #-}
@@ -6,61 +7,15 @@
 
 module Rewrite where
 
+import GHC.Generics
 import Control.Monad.State.Strict
 import Control.Applicative
 import Test.QuickCheck.Classes ()
 import GHC.Generics (Generic)
 import Data.Tuple (swap)
 import Debug.RecoverRTTI
+import Debug.Trace (trace)
 import Debug.Trace (traceM)
-
-
-data ProofState ext err s m a where
-  Subgoal
-    :: a
-    -> (ext -> ProofState ext err s m a)
-    -> ProofState ext err s m a
-  Effect
-    :: m (ProofState ext err s m a)
-    -> ProofState ext err s m a
-  Stateful
-    :: (s -> (s, ProofState ext err s m a))
-    -> ProofState ext err s m a
-  Alt
-    :: ProofState ext err s m a
-    -> ProofState ext err s m a
-    -> ProofState ext err s m a
-  Commit
-    :: ProofState ext err s m x
-    -> ProofState ext err s m x
-    -> (x -> ProofState ext err s m a)
-    -> ProofState ext err s m a
-  Empty
-    :: ProofState ext err s m a
-  Handle
-    :: ProofState ext err s m x
-    -> (err -> ProofState ext err s m x)
-    -> (x -> ProofState ext err s m a)
-    -> ProofState ext err s m a
-  Throw
-    :: err
-    -> ProofState ext err s m a
-  Axiom
-    :: ext
-    -> ProofState ext err s m a
-
-newtype TacticT jdg ext err s m a = TacticT
-  { unTacticT :: StateT jdg (ProofState ext err s m) a
-  } deriving newtype (Functor, Applicative, Monad, Alternative, MonadPlus)
-
-instance MonadTrans (Rule jdg ext err s) where
-  lift ma = EffectR $ fmap pure ma
-
-instance MonadTrans (ProofState ext err s) where
-  lift ma = Effect $ fmap pure ma
-
-instance MonadTrans (TacticT jdg ext err s) where
-  lift ma = TacticT $ StateT $ \jdg -> fmap (, jdg) $ Effect $ fmap pure ma
 
 data Rule jdg ext err s m a where
   Pure
@@ -78,96 +33,15 @@ data Rule jdg ext err s m a where
     -> Rule jdg ext err s m a
   deriving stock (Functor)
 
-instance Show (ProofState ext err s m a) where
-  show = anythingToString
-
-instance (Show ext, Show err, Show jdg, Monoid jdg, Show a) =>
-    Show (TacticT jdg ext err s m a) where
-  show (TacticT t) = show $ runStateT t mempty
-
-
-instance Functor m => Functor (ProofState ext err s m) where
-  fmap f (Subgoal a k)
-    = Subgoal (f a) $ fmap f . k
-  fmap f (Effect m)
-    = Effect $ fmap (fmap f) m
-  fmap f (Stateful m)
-    = Stateful $ fmap (fmap (fmap f)) m
-  fmap f (Alt t1 t2)
-    = Alt (fmap f t1) (fmap f t2)
-  fmap f (Commit t1 t2 k)
-    = Commit t1 t2 $ fmap f . k
-  fmap _ Empty
-    = Empty
-  fmap _ (Throw err)
-    = Throw err
-  fmap f (Handle t1 h k)
-    = Handle t1 h $ fmap f . k
-  fmap _ (Axiom ext)
-    = Axiom ext
-
-instance Functor m => Applicative (ProofState ext err s m) where
-  pure a = Subgoal a Axiom
-  (<*>) = ap
-
-instance Functor m => Monad (ProofState ext err s m) where
-  return = pure
-  (>>=) (Subgoal a k) f = applyCont (f <=< k) $ f a
-  (>>=) (Effect m) f = Effect $ fmap (f =<<) m
-  (>>=) (Stateful m) f = Stateful $ fmap (fmap (f =<<)) m
-  (>>=) (Alt t1 t2) f = Alt (t1 >>= f) (t2 >>= f)
-  (>>=) (Commit t1 t2 k) f = Commit t1 t2 $ f <=< k
-  (>>=) Empty _ = Empty
-  (>>=) (Handle t h k) f = Handle t h $ f <=< k
-  (>>=) (Throw err) _ = Throw err
-  (>>=) (Axiom ext) _ = Axiom ext
-
-instance Functor m => MonadState s (ProofState ext err s m) where
-  state s = Stateful $ fmap (fmap pure . swap) s
-
-instance Functor m => Alternative (ProofState ext err s m) where
-  empty = Empty
-  (<|>) = Alt
-
-instance Functor m => MonadPlus (ProofState ext err s m) where
-  mzero = empty
-  mplus = (<|>)
-
-
-applyCont
-    :: (Functor m)
-    => (ext -> ProofState ext err s m a)
-    -> ProofState ext err s m a
-    -> ProofState ext err s m a
-applyCont k (Subgoal goal k')
-  = Subgoal goal (applyCont k . k')
-applyCont k (Effect m)
-  = Effect (fmap (applyCont k) m)
-applyCont k (Stateful s)
-  = Stateful $ fmap (applyCont k) . s
-applyCont k (Alt p1 p2)
-  = Alt (applyCont k p1) (applyCont k p2)
-applyCont k (Commit p1 p2 k')
-  = Commit p1 p2 $ applyCont k . k'
-applyCont k (Handle t h k')
-  = Handle t h $ applyCont k . k'
-applyCont _ Empty
-  = Empty
-applyCont _ (Throw err)
-  = Throw err
-applyCont k (Axiom ext)
-  = k ext
-
-
-instance Functor m => MonadState s (TacticT jdg ext err s m) where
-  state s = TacticT $ lift $ Stateful $ fmap (fmap pure . swap) s
-
 
 deriving instance (Show a, Show jdg, Show (m (Rule jdg ext err s m a))) =>
   Show (Rule jdg ext err s m a)
 
 instance Functor m => MonadState s (Rule jdg ext err s m) where
   state s =  StatefulR $ fmap (fmap pure . swap) s
+
+instance MonadTrans (Rule jdg ext err s) where
+  lift = EffectR . fmap pure
 
 
 instance Functor m => Applicative (Rule jdg ext err s m) where
@@ -183,37 +57,8 @@ instance Functor m => Monad (Rule jdg ext err s m) where
   (>>=) (StatefulR m) f = StatefulR $ fmap (fmap (f =<<)) m
 
 
-rule
-    :: Functor m
-    => Rule jdg ext err s m ext
-    -> TacticT jdg ext err s m ()
-rule r = TacticT $ StateT $ const $ fmap ((), ) $ ruleToProof r
-
-
-ruleToProof
-    :: Functor m
-    => Rule jdg ext err s m ext
-    -> ProofState ext err s m jdg
-ruleToProof (Pure ext)
-  = Axiom ext
-ruleToProof (SubgoalR jdg k)
-  = Subgoal jdg $ ruleToProof . k
-ruleToProof (EffectR m)
-  = Effect $ fmap ruleToProof m
-ruleToProof (StatefulR m)
-  = Stateful $ fmap (fmap ruleToProof) m
-
-
-goal :: Functor m => TacticT jdg ext err s m jdg
-goal = TacticT get
-
-
 subgoal :: Functor m => jdg -> Rule jdg ext err s m ext
 subgoal jdg = SubgoalR jdg pure
-
-
-throw :: Functor m => err -> TacticT jdg ext err s m a
-throw = TacticT . lift . Throw
 
 
 
@@ -221,12 +66,18 @@ class Monad m => MonadExtract ext m | m -> ext where
   hole :: m ext
 
 
-data Blah ext err s m a = Blah
-  { unBlah
+data ProofState ext err s m a = ProofState
+  { runProofState
       :: forall r
        . s
-      -> (s -> a -> (ext -> Blah ext err s m a) -> r)
-      -> (forall x. s -> Blah ext err s m x -> Blah ext err s m x -> (x -> Blah ext err s m a) -> r)
+      -> (s -> a -> (ext -> ProofState ext err s m a) -> r)
+      -> (forall x
+            . s
+           -> ProofState ext err s m x
+           -> ProofState ext err s m x
+           -> (x -> ProofState ext err s m a)
+           -> r
+         )
       -> (s -> ext -> r)
       -> r
       -> (s -> err -> r)
@@ -235,339 +86,215 @@ data Blah ext err s m a = Blah
       -> r
   }
 
-instance Alternative (Blah ext err s m) where
-  Blah m1 <|> Blah m2 = Blah $ \s sub comm ok cut raise eff keep ->
-    keep (m1 s sub comm ok cut raise eff keep) (m2 s sub comm ok cut raise eff keep)
-  empty = Blah $ \_ _ _ _ cut _ _ _ -> cut
+instance Alternative (ProofState ext err s m) where
+  ProofState m1 <|> ProofState m2 = ProofState $ \s sub comm ok cut raise eff alt ->
+    alt (m1 s sub comm ok cut raise eff alt) (m2 s sub comm ok cut raise eff alt)
+  empty = ProofState $ \_ _ _ _ cut _ _ _ -> cut
 
-instance MonadPlus (Blah ext err s m) where
+instance MonadPlus (ProofState ext err s m) where
 
-instance MonadTrans (Blah ext err s) where
-  lift ma = Blah $ \s sub comm ok cut raise eff keep -> eff $
-    fmap (\a -> unBlah (pure a) s sub comm ok cut raise eff keep) ma
+instance MonadTrans (ProofState ext err s) where
+  lift ma = ProofState $ \s sub comm ok cut raise eff alt -> eff $
+    fmap (\a -> runProofState (pure a) s sub comm ok cut raise eff alt) ma
 
 
-instance MonadState s (Blah ext err s m) where
-  state f = Blah $ \s sub _ _ _ _ _ _ ->
+instance MonadState s (ProofState ext err s m) where
+  state f = ProofState $ \s sub _ _ _ _ _ _ ->
     let (a, s') = f s
      in sub s' a $ \ext ->
-          Blah $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
+          ProofState $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
 
 
-instance Functor (Blah ext err s m) where
-  fmap f (Blah fa) = Blah $ \s sub comm ok cut raise eff keep ->
+instance Functor (ProofState ext err s m) where
+  fmap f (ProofState fa) = ProofState $ \s sub comm ok cut raise eff alt ->
     fa
       s
       (\s' a k -> sub s' (f a) $ fmap (fmap f) k)
       (\s' c1 c2 k -> comm s' c1 c2 $ fmap (fmap f) k)
-      ok cut raise eff keep
+      ok cut raise eff alt
 
-instance Applicative (Blah ext err s m) where
-  pure a = Blah $ \s sub _ _ _ _ _ _ ->
+instance Applicative (ProofState ext err s m) where
+  pure a = ProofState $ \s sub _ _ _ _ _ _ ->
     sub s a $ \ext ->
-      Blah $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
-  Blah f <*> blah@(Blah a) = Blah $ \s sub comm ok cut raise eff keep ->
+      ProofState $ \s' _ _ ok' _ _ _ _ -> ok' s' ext
+  ProofState f <*> blah@(ProofState a) = ProofState $ \s sub comm ok cut raise eff alt ->
     f s
       (\s' ab k ->
         a
           s'
           (\s'' a k' -> sub s'' (ab a) $ liftA2 (<*>) k k')
           (\s'' c1 c2 k' -> comm s'' c1 c2 $ \x -> fmap ab $ k' x)
-          ok cut raise eff keep)
+          ok cut raise eff alt)
       (\s' c1 c2 k -> comm s' c1 c2 $ \x -> k x <*> blah)
-      ok cut raise eff keep
+      ok cut raise eff alt
 
-instance Monad (Blah ext err s m) where
+instance Monad (ProofState ext err s m) where
   return = pure
-  Blah ma >>= f = Blah $ \s sub comm ok cut raise eff keep ->
+  ProofState ma >>= f = ProofState $ \s sub comm ok cut raise eff alt ->
     ma s
       (\s' a k ->
-        unBlah (f a)
+        runProofState (f a)
           s' sub
           comm
           (\s' ext ->
-            unBlah (k ext >>= f)
-              s' sub comm ok cut raise eff keep)
-          cut raise eff keep)
+            runProofState (k ext >>= f)
+              s' sub comm ok cut raise eff alt)
+          cut raise eff alt)
       (\s' c1 c2 k -> comm s' c1 c2 $ k >=> f)
-      ok cut raise eff keep
+      ok cut raise eff alt
 
 
-sequenceImmediateEffects
-    :: Monad m
-    => s
-    -> ProofState ext err s m a
-    -> m (ProofState ext err s m a)
-sequenceImmediateEffects s =
-  kill
-    s
-    (\s' a k' -> pure $ put s' >> Subgoal a k')
-    (\s ext -> pure $ put s >> Axiom ext)
-    (pure Empty)
-    (\s' err -> pure $ put s' >> Throw err)
-    (pure . Effect . join)
-    (liftA2 (<|>))
-
-
-kill
-    :: Monad m
-    => s
-    -> (s -> a -> (ext -> ProofState ext err s m a) -> m r)
-    -> (s -> ext -> m r)
-    -> m r
-    -> (s -> err -> m r)
-    -> (m (m r) -> m r)
-    -> (m r -> m r -> m r)
-    -> ProofState ext err s m a
-    -> m r
-kill s sub _ _ _ _ _ (Subgoal a k) = do
-  sub s a k
-
-kill s sub ok cut raise eff keep (Effect m) = do
-  eff $ fmap (kill s sub ok cut raise eff keep) m
-
-kill s sub ok cut raise eff keep (Stateful m) =
-  let (s', t) = m s
-   in kill s' sub ok cut raise eff keep t
-
-kill s sub ok cut raise eff keep (Alt t1 t2) =
-  keep (kill s sub ok cut raise eff keep t1)
-       (kill s sub ok cut raise eff keep t2)
-
-kill s sub ok cut raise eff keep (Commit (t1 :: ProofState ext err s m x) t2 k) = do
-  (x1 :: ProofState ext err s m x) <- sequenceImmediateEffects s t1
-  let run_t2 sub' ok' cut' raise eff' keep' = do
-        (x2 :: ProofState ext err s m x) <- sequenceImmediateEffects s t2
-        kill s sub' ok' cut' raise eff' keep' $ k =<< x2
-
-      sub' = (\s' x k' -> kill s' sub ok cut raise eff keep $ Subgoal x k' >>= k)
-
-  kill s sub' ok
-                (run_t2 sub ok cut             raise                                              eff keep)
-    (\s1 err1 -> run_t2 sub ok (raise s1 err1) (\s2 err2 -> keep (raise s1 err1) (raise s2 err2)) eff keep)
-    eff keep x1
-
-kill _ _ _ cut _ _ _ Empty = cut
-
-kill s sub ok cut raise eff keep (Handle t h k)
-  = let sub' = \s' x k' -> kill s' sub ok cut raise eff keep $ Subgoal x k' >>= k
-     in kill s sub' ok cut
-          (\s' err -> kill s' sub' ok cut raise eff keep $ h err) eff keep t
-
-kill s _ _ _ raise _ _ (Throw err) = raise s err
-
-kill s _ ok _ _ _ _ (Axiom ext) = ok s ext
-
-
-subgoals
-    :: Monad m
-    => [jdg -> ProofState ext err s m jdg]
-    -> ProofState ext err s m jdg
-    -> ProofState ext err s m jdg
-subgoals [] p = p
-subgoals (t:ts) p = do
-  s <- get
-  Effect $
-    kill
-      s
-      (\s' a k' -> pure $ put s' >> applyCont (subgoals ts . k') (t a))
-      (\s' ext -> pure $ put s' >> Axiom ext)
-      (pure Empty)
-      (\s' err -> pure $ put s' >> Throw err)
-      (pure . Effect . join)
-      (liftA2 (<|>))
-      p
-
--- gather
---     :: Monad m
---     => TacticT jdg ext err s m a
---     -> ([(a, jdg)] -> TacticT jdg ext err s m a)
---     -> TacticT jdg ext err s m a
--- gather (TacticT t) f = TacticT $ StateT $ \jdg -> do
---   let p = runStateT t jdg
---   s <- get
---   Effect $
---     kill
---       s
---       (\s' (a, jdg) k' -> pure $ put s' >> applyCont k' $ f (a, jdg))
---       (\s' ext -> pure $ put s' >> Axiom ext)
---       (pure Empty)
---       (\s' err -> pure $ put s' >> Throw err)
---       (pure . Effect . join)
---       (liftA2 (<|>))
---       p
-
-(<@>)
-    :: Monad m
-    => TacticT jdg ext err s m a
-    -> [TacticT jdg ext err s m a]
-    -> TacticT jdg ext err s m a
-TacticT t <@> ts =
-  TacticT $ StateT $ \jdg ->
-    subgoals (fmap (\(TacticT t') (_, jdg') -> runStateT t' jdg') ts) $ runStateT t jdg
-
-
-data Result s jdg err ext
+data Result s err ext
   = ErrorResult err
-  | Extract s ext [jdg]
+  | Extract s ext
   | NoResult
   deriving stock (Show, Generic, Eq)
 
 
--- (<@>) :: Functor m => TacticT jdg ext err s m a -> [TacticT jdg ext err s m a] -> TacticT jdg ext err s m a
--- (<@>) t [] = t
--- (<@>) t (s : ss) = kill _ _ _ _ _ _ _ t
-
-
-proof
-    :: MonadExtract ext m
-    => s
-    -> ProofState ext err s m jdg
-    -> m [Result s jdg err ext]
-proof s =
-  kill s
-    (\s' _ x -> proof s' $ x =<< lift hole)
-    (\s ext -> pure . pure $ Extract s ext [])
-    (pure [])
-    (const $ pure . pure . ErrorResult)
-    join
-    (liftA2 (<>))
-
-class MonadSlip m where
-  slip :: m (r -> x) -> r -> m x
-
-
-proofgoals
-    :: MonadExtract ext m
-    => ([jdg] -> Maybe err)
-    -> s
-    -> ProofState ext err s m jdg
-    -> m ([jdg] -> ProofState ext err s m jdg)
-proofgoals f s =
-  kill s
-    (\s' jdg k -> do
-      r <- proofgoals f s' $ k =<< lift hole
-      pure $ \goals -> r $ jdg : goals
-      )
-    (\s' ext -> pure $ \goals -> put s' >>
-      case f goals of
-        Just err -> Throw err
-        Nothing -> Axiom ext
-    )
-    (pure $ const empty)
-    (\s' err -> pure $ const $ put s' >> Throw err)
-    (\mma -> pure $ \goals -> Effect $ fmap ($ goals) $ join mma)
-    (liftA2 $ liftA2 (<|>))
-
-
-pruning
-    :: MonadExtract ext m
-    => TacticT jdg ext err s m ()
-    -> ([jdg] -> Maybe err)
-    -> TacticT jdg ext err s m ()
-pruning (TacticT t) f = do
-  s <- get
-  TacticT $ StateT $ \jdg -> do
-    let t' = execStateT t jdg
-    go <- lift $ proofgoals f s t'
-    fmap ((), ) $ go []
-
-
-runTactic
-    :: MonadExtract ext m
-    => s
-    -> jdg
-    -> TacticT jdg ext err s m a -> m [Result s jdg err ext]
-runTactic s jdg (TacticT m) = proof s $ execStateT m jdg
-
-
-commit :: Functor m => TacticT jdg ext err s m a -> TacticT jdg ext err s m a -> TacticT jdg ext err s m a
-commit (TacticT t1) (TacticT t2) = TacticT $ StateT $ \jdg ->
-  Commit (runStateT t1 jdg) (runStateT t2 jdg) pure
-
-
-catch
-    :: Functor m
-    => TacticT jdg ext err s m a
-    -> (err -> TacticT jdg ext err s m a)
-    -> TacticT jdg ext err s m a
-catch (TacticT t) h = TacticT $ StateT $ \jdg ->
-  Handle
-    (runStateT t jdg)
-    (flip runStateT jdg . unTacticT . h)
-    pure
-
-newtype Tactic2 jdg ext err s m a = Tactic2
-  { unTactic2 :: StateT jdg (Blah ext err s m) a
+newtype TacticT jdg ext err s m a = TacticT
+  { unTactic2 :: StateT jdg (ProofState ext err s m) a
   } deriving newtype (Functor, Applicative, Monad, Alternative, MonadPlus)
 
+instance MonadTrans (TacticT jdg ext err s) where
+  lift = TacticT . lift . lift
 
-commit2 :: Tactic2 jdg ext err s m a -> Tactic2 jdg ext err s m a -> Tactic2 jdg ext err s m a
-commit2 (Tactic2 t1) (Tactic2 t2) = tactic2 $ \jdg ->
-  Blah $ \s _ comm _ _ _ _ _ ->
+instance (Show s, Monoid ext, Show a, Show ext, Show err, Monoid s, Monoid jdg, Show (m String)) => Show (TacticT jdg ext err s m a) where
+  show (TacticT t) =
+    show $ evalStateT t mempty
+
+instance (Show s, Monoid ext, Show a, Show ext, Show err, Monoid s, Show (m String)) => Show (ProofState ext err s m a) where
+  show t =
+    runProofState t
+      mempty
+      (\s a k ->
+        mconcat
+          [ "(put "
+          , showsPrec 10 s ""
+          , " >> sg "
+          , showsPrec 10 a ""
+          , " <k>"
+          , ")"
+          ])
+      (\_ _c1 _c2 _k -> "(commit <c1> <c2>)")
+        -- mconcat
+        --   [ show $ tactic2 $ \jdg -> fmap (, jdg) c2
+        --   ])
+      (\s ext ->
+        mconcat
+          [ "(put "
+          , showsPrec 10 s ""
+          , " >> axiom ("
+          , show ext
+          , "))"
+          ])
+      "empty"
+      (\s err ->
+        mconcat
+          [ "(put "
+          , showsPrec 10 s ""
+          , " >> throw "
+          , show err
+          , ")"
+          ])
+      show
+      (\s1 s2 ->
+        mconcat
+          [ "("
+          , s1
+          , " <|> "
+          , s2
+          , ")"
+          ])
+
+
+instance MonadState s (TacticT jdg ext err s m) where
+  state f = TacticT $ StateT $ \jdg ->
+    ProofState $ \s sub _ _ _ _ _ _ ->
+      let (a, s') = f s
+       in sub s' (a, jdg) $ \ext ->
+          ProofState $ \s'' _ _ ok' _ _ _ _ -> ok' s'' ext
+
+
+commit :: TacticT jdg ext err s m a -> TacticT jdg ext err s m a -> TacticT jdg ext err s m a
+commit (TacticT t1) (TacticT t2) = tactic2 $ \jdg ->
+  ProofState $ \s _ comm _ _ _ _ _ ->
     comm s (runStateT t1 jdg) (runStateT t2 jdg) pure
 
 
-catch2
-    :: Tactic2 jdg ext err s m a
-    -> (err -> Tactic2 jdg ext err s m a)
-    -> Tactic2 jdg ext err s m a
-catch2 (Tactic2 t) h = tactic2 $ \jdg ->
-  Blah $ \s sub comm ok cut raise eff keep ->
-    unBlah (runStateT t jdg)
+catch
+    :: TacticT jdg ext err s m a
+    -> (err -> TacticT jdg ext err s m a)
+    -> TacticT jdg ext err s m a
+catch (TacticT t) h = tactic2 $ \jdg ->
+  ProofState $ \s sub comm ok cut raise eff alt ->
+    runProofState (runStateT t jdg)
       s sub comm ok cut
-      (\s' err -> unBlah (tacticToBlah jdg $ h err) s' sub comm ok cut raise eff keep)
-      eff keep
+      (\s' err -> runProofState (tacticToBlah jdg $ h err) s' sub comm ok cut raise eff alt)
+      eff alt
 
-tacticToBlah :: jdg -> Tactic2 jdg ext err s m a -> Blah ext err s m (a, jdg)
-tacticToBlah jdg (Tactic2 t) = runStateT t jdg
+tacticToBlah :: jdg -> TacticT jdg ext err s m a -> ProofState ext err s m (a, jdg)
+tacticToBlah jdg (TacticT t) = runStateT t jdg
 
-tactic2 :: (jdg -> Blah ext err s m (a, jdg)) -> Tactic2 jdg ext err s m a
-tactic2 f = Tactic2 $ StateT $ f
+tactic2 :: (jdg -> ProofState ext err s m (a, jdg)) -> TacticT jdg ext err s m a
+tactic2 f = TacticT $ StateT $ f
 
-goal2 :: Tactic2 jdg ext err s m jdg
-goal2 = Tactic2 get
+goal :: TacticT jdg ext err s m jdg
+goal = TacticT get
 
-throw2 :: err -> Tactic2 jdg ext err s m a
-throw2 err = Tactic2 $ lift $ Blah $ \s _ _ _ _ raise _ _ -> raise s err
+throw :: err -> TacticT jdg ext err s m a
+throw err = TacticT $ lift $ ProofState $ \s _ _ _ _ raise _ _ -> raise s err
 
 
-sequenceImmediateEffects2 :: Monad m => s -> Blah ext err s m a -> m (Blah ext err s m a)
-sequenceImmediateEffects2 s (Blah m) =
+sequenceImmediateEffects :: forall m s ext err a. Monad m => s -> ProofState ext err s m a -> m (ProofState ext err s m a)
+sequenceImmediateEffects s (ProofState m) =
   m s
     (\s' a k -> pure $ do
       put s'
-      Blah $ \s'' sub _ _ _ _ _ _ -> sub s'' a k
+      ProofState $ \s'' sub _ _ _ _ _ _ -> sub s'' a k
       )
     (\s' c1 c2 k -> pure $ do
       put s'
-      Blah $ \s'' _ comm _ _ _ _ _ -> comm s'' c1 c2 k)
+      ProofState $ \s'' _ comm _ _ _ _ _ -> comm s'' c1 c2 k)
     (\s' ext -> pure $ do
       put s'
-      Blah $ \s'' _ _ ok _ _ _ _ -> ok s'' ext
+      ProofState $ \s'' _ _ ok _ _ _ _ -> ok s'' ext
     )
     (pure empty)
     (\s' err -> pure $ do
       put s'
-      Blah $ \s'' _ _ _ _ raise _ _ -> raise s'' err
+      ProofState $ \s'' _ _ _ _ raise _ _ -> raise s'' err
     )
-    join
+    (\mma -> pure $
+      ProofState $ \s' sub comm ok cut raise eff alt ->
+        eff $ do
+          ma <- mma
+          a <- ma
+          kill
+            s'
+            (\s'' a k -> pure $ sub s'' a k)
+            (\s'' ext -> pure $ ok s'' ext)
+            (pure cut)
+            (\s'' err -> pure $ raise s'' err)
+            join
+            (liftA2 alt)
+            a
+    )
     (liftA2 (<|>))
 
 
-kill2
+kill
   :: forall s m a ext err r
    . Monad m
   => s
-  -> (s -> a -> (ext -> Blah ext err s m a) -> m r)
+  -> (s -> a -> (ext -> ProofState ext err s m a) -> m r)
   -> (s -> ext -> m r)
   -> m r
   -> (s -> err -> m r)
   -> (m (m r) -> m r)
   -> (m r -> m r -> m r)
-  -> Blah ext err s m a
+  -> ProofState ext err s m a
   -> m r
-kill2 s sub ok cut raise eff keep (Blah m) =
+kill s sub ok cut raise eff alt (ProofState m) = do
   m
     s sub
     (\s' c1 c2 k -> do
@@ -576,35 +303,81 @@ kill2 s sub ok cut raise eff keep (Blah m) =
             -> (s -> err -> m r)
             -> m r
           run_c2 cut' raise' = do
-            x2 <- sequenceImmediateEffects2 s' c2
-            kill2 s' sub ok cut' raise' eff keep
+            x2 <- sequenceImmediateEffects s' c2
+            kill s' sub ok cut' raise' eff alt
               $ k =<< x2
 
-      x1 <- sequenceImmediateEffects2 s' c1
-      kill2
-        s' sub ok
+      x1 <- sequenceImmediateEffects s' c1
+      kill
+        s'
+        (\s'' x _ -> kill s'' sub ok cut raise eff alt $ k x)
+        ok
         (run_c2 cut raise)
         (\s1 err1 ->
           run_c2
             (raise s1 err1)
-            (\s2 err2 -> keep (raise s1 err1) (raise s2 err2)))
-        eff keep
-          $ k =<< x1
+            (\s2 err2 -> alt (raise s1 err1) (raise s2 err2)))
+        eff alt x1
     )
-    ok cut raise eff keep
+    ok cut raise
+    eff
+    alt
 
 
-proof2 :: MonadExtract ext m => s -> Blah ext err s m a -> m [Result s jdg err ext]
-proof2 s =
-  kill2
+proof :: MonadExtract ext m => s -> ProofState ext err s m a -> m [Result s err ext]
+proof s =
+  kill
     s
-    (\s' _ x -> proof2 s' . x =<< hole)
-    (\s' ext -> pure $ pure $ Extract s' ext [])
+    (\s' _ x -> proof s' . x =<< hole)
+    (\s' ext -> pure $ pure $ Extract s' ext)
     (pure $ pure $ NoResult)
     (\_ err -> pure $ pure $ ErrorResult err)
     join
     (liftA2 (<>))
 
-ignore :: Functor m => TacticT jdg ext err s m ()
-ignore = pure ()
+
+rule :: Functor m => Rule jdg ext err s m ext -> TacticT jdg ext err s m ()
+rule r = TacticT $ StateT $ const $ fmap ((),) $ ruleToProofState r
+
+
+ruleToProofState
+    :: Functor m
+    => Rule jdg ext err s m ext
+    -> ProofState ext err s m jdg
+ruleToProofState r = ProofState $ \s sub comm ok cut raise eff alt ->
+  case r of
+    Pure ext ->
+      ok s ext
+    SubgoalR jdg k ->
+      sub s jdg $ \ext -> ruleToProofState (k ext)
+    EffectR m ->
+      eff $ fmap (\r' -> runProofState (ruleToProofState r') s sub comm ok cut raise eff alt) m
+    StatefulR f ->
+      let (s', r') = f s
+       in runProofState (ruleToProofState r') s' sub comm ok cut raise eff alt
+
+
+runTactic
+    :: MonadExtract ext m
+    => s
+    -> jdg
+    -> TacticT jdg ext err s m a
+    -> m [Result s err ext]
+runTactic s jdg (TacticT t) =
+  proof s (flip evalStateT jdg $ t)
+
+
+sg
+    :: a
+    -> (ext -> TacticT jdg ext err s m a)
+    -> TacticT jdg ext err s m a
+sg a k = do
+  jdg <- goal
+  TacticT $ lift $ ProofState $ \s sub _ _ _ _ _ _ ->
+    sub s a $ fmap fst . tacticToBlah jdg . k
+
+
+axiom :: ext -> TacticT jdg ext err s m a
+axiom ext = TacticT $ lift $ ProofState $ \s _ _ ok _ _ _ _ ->
+  ok s ext
 

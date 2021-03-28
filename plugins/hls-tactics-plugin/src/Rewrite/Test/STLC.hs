@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections     #-}
 
@@ -16,13 +17,20 @@ testJdg :: Judgement
 testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" (TPair "b" "c")
 
 
-instance Monad m => MonadExtract Term m where
-  hole = pure Hole
+instance MonadExtract Term (State Int) where
+  hole = do
+    modify (+1)
+    pure $ Hole
 
-proof2 :: Monad m => s -> ProofState Term err s m a -> m [Either err (s, Term)]
-proof2 s =
+instance MonadExtract Term IO where
+  hole = do
+    putStrLn "making a hole"
+    pure $ Hole
+
+proof2 :: MonadExtract ext m => s -> ProofState ext err s m a -> m [Either err (s, ext)]
+proof2 s = do
   kill s
-    (\s' _ x -> proof2 s' $ x =<< hole)
+    (\s' _ x -> proof2 s' $ x =<< lift hole)
     (\s -> pure . pure . Right . (s, ))
     (pure [])
     (const $ pure . pure . Left)
@@ -30,11 +38,11 @@ proof2 s =
     (liftA2 (<>))
 
 runTactic2
-    :: Monad m
+    :: MonadExtract ext m
     => s
-    -> Judgement
-    -> TacticT Judgement Term err s m a
-    -> m [Either err (s, Term)]
+    -> jdg
+    -> TacticT jdg ext err s m a
+    -> m [Either err (s, ext)]
 runTactic2 s jdg (TacticT m) = proof2 s $ execStateT m jdg
 
 
@@ -48,6 +56,12 @@ data Term
   | Lam String Term
   | Pair Term Term
   deriving stock (Show, Eq, Generic, Ord)
+
+instance Semigroup Term where
+  a <> _ = a
+
+instance Monoid Term where
+  mempty = Hole
 
 
 -- The type part of simply typed lambda calculus
