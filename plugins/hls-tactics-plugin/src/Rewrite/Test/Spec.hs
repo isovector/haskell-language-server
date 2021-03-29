@@ -22,7 +22,7 @@ import Data.Monoid
 
 type ProofStateTest = ProofState Term String (Int) (State Int)
 type TacticTest = TacticT Judgement Term String (Int) (State Int)
-type RuleTest = Rule Judgement Term String (Int) (State Int)
+type RuleTest = RuleT Judgement Term String (Int) (State Int)
 
 instance Semigroup Int where
   (<>) = (+)
@@ -105,7 +105,7 @@ spec = modifyMaxSuccess (const 1000) $ do
 
   prop "state is persistent across rule" $ \s ->
     within (1e5) $
-      (put s >> (rule $ get >>= pure . Var . show))
+      (put s >> (rule' $ get >>= pure . Var . show))
         =-= (put s >> mkResult s)
 
   prop "commit rolls back state" $ \(t :: TT) s ->
@@ -191,7 +191,7 @@ main = do
 
 
 mkResult :: Show a => a -> TT
-mkResult = rule . pure . Var . show
+mkResult = rule' . pure . Var . show
 
 
 type TI = TacticTest Int
@@ -236,7 +236,7 @@ type TIO = TacticT Judgement Term String Int IO
 test :: IO ()
 test = do
   let (t1 :: TIO ()) = do
-        (rule $ subgoal testJdg >>= \ext -> pure $ Pair ext ext) <|> do
+        (rule' $ subgoal testJdg >>= \ext -> pure $ Pair ext ext) <|> do
           lift $ putStrLn "999"
       (t2 :: TIO ()) = empty
       (e :: TIO ()) = lift $ putStrLn "io"

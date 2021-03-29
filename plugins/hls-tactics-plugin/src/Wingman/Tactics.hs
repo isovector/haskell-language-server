@@ -37,7 +37,8 @@ import Rewrite hiding (runTactic)
 ------------------------------------------------------------------------------
 -- | Use something in the hypothesis to fill the hole.
 assumption :: TacticsM ()
-assumption = attemptOn (S.toList . allNames) assume
+assumption = do
+  attemptOn (S.toList . allNames) assume
 
 
 ------------------------------------------------------------------------------
@@ -344,8 +345,9 @@ auto' n = do
         destructAuto aname
         loop
     , splitAuto >> loop
-    , assumption >> loop
-    , recursion
+    , do
+      assumption >> loop
+    -- , recursion
     ]
 
 overFunctions :: (HyInfo CType -> TacticsM ()) -> TacticsM ()

@@ -62,8 +62,8 @@ instance ( Arbitrary err
          , Monad m
          , Arbitrary jdg
          , CoArbitrary jdg
-         , Arbitrary (m (Rule jdg ext err s m ext))
-         , Arbitrary (m (Rule jdg ext err s m Int))
+         , Arbitrary (m (RuleT jdg ext err s m ext))
+         , Arbitrary (m (RuleT jdg ext err s m Int))
          , Arbitrary (m Int)
          , Arbitrary (m ext)
          ) => Arbitrary (TacticT jdg ext err s m a) where
@@ -101,9 +101,9 @@ instance  ( Arbitrary a
           , Arbitrary jdg
           , CoArbitrary s
           , Arbitrary s
-          , Arbitrary (m (Rule jdg ext err s m a))
-          , Arbitrary (m (Rule jdg ext err s m Int))
-          , Arbitrary (m (Rule jdg ext err s m ext))
+          , Arbitrary (m (RuleT jdg ext err s m a))
+          , Arbitrary (m (RuleT jdg ext err s m Int))
+          , Arbitrary (m (RuleT jdg ext err s m ext))
           , CoArbitrary ext
           , Typeable a
           , Typeable ext
@@ -112,7 +112,7 @@ instance  ( Arbitrary a
           , Arbitrary (m a)
           , Arbitrary (m ext)
           , Arbitrary (m Int)
-          ) => Arbitrary (Rule jdg ext err s m a) where
+          ) => Arbitrary (RuleT jdg ext err s m a) where
   arbitrary
     = let terminal = [pure <$> arbitrary]
       in sized $ \n -> case n <= 1 of
@@ -122,7 +122,7 @@ instance  ( Arbitrary a
               case eqT @a @ext of
                 Just Refl -> subgoal <$> arbitrary
                 Nothing -> pure <$> arbitrary
-            , (>>) <$> (arbitrary @(Rule jdg ext err s m ext))
+            , (>>) <$> (arbitrary @(RuleT jdg ext err s m ext))
                    <*> scale (flip div 2) arbitrary
             , lift <$> scale (flip div 2) arbitrary
             , StatefulR <$> scale (flip div 2) arbitrary
@@ -155,8 +155,8 @@ instance ( Arbitrary s
 
 instance ( Monad m
          , EqProp (TacticT jdg ext err s m ())
-         ) => EqProp (Rule jdg ext err s m ext) where
-  a =-= b = rule a =-= rule b
+         ) => EqProp (RuleT jdg ext err s m ext) where
+  a =-= b = rule' a =-= rule' b
 
 instance ( Arbitrary s
          , Arbitrary jdg

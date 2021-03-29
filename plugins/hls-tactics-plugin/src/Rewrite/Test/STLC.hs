@@ -13,10 +13,10 @@ import GHC.Exts
 import Control.Applicative
 import GHC.Generics (Generic)
 import Debug.Trace (traceM)
-import Data.Functor.Identity (Identity)
+import Data.Functor.Identity (Identity (runIdentity))
 
 testJdg :: Judgement
-testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- TPair "a" (TPair "b" "c")
+testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- ("a" :-> "b" :-> TPair "a" "b")
 
 
 instance MonadExtract Term (State Int) where
@@ -41,6 +41,7 @@ proof2 s p = do
     (const $ pure . pure . Left)
     join
     (liftA2 (<>))
+    (liftA2 interleave)
 
 runTactic2
     :: MonadExtract ext m
@@ -49,6 +50,25 @@ runTactic2
     -> TacticT jdg ext err s m a
     -> m [Either err (s, ext)]
 runTactic2 s jdg (TacticT m) = proof2 s $ execStateT m jdg
+
+test :: [Either String (Int, Term)]
+test = runIdentity $ runTactic2 (0 :: Int) testJdg $ do
+  commit lam $ pure ()
+  commit lam $ pure ()
+  commit lam $ pure ()
+  commit lam $ pure ()
+  commit lam $ pure ()
+  commit lam $ pure ()
+  pair
+  assumption
+
+lam = rule $ \jdg ->
+  case jdg of
+    hy :- (t :-> a) -> do
+      let name = "x"
+      ext <- subgoal $ (("x", t) : hy) :- a
+      pure $ Lam name ext
+    _ -> ThrowR "not a lambda"
 
 
 
@@ -95,13 +115,13 @@ assumption :: Functor m => TacticT Judgement Term String s m ()
 assumption = do
   hy :- g <- goal
   case find ((== g) . snd) hy of
-    Just v -> rule $ pure $ Var $ fst v
+    Just v -> rule' $ pure $ Var $ fst v
     Nothing -> throw $ "nothing in scope for " <> show g
 
 pair :: Functor m => TacticT Judgement Term String s m ()
 pair = do
   goal >>= \case
-    hy :- TPair ta tb -> rule $ do
+    hy :- TPair ta tb -> rule' $ do
       exta <- subgoal $ hy :- ta
       extb <- subgoal $ hy :- tb
       pure $ Pair exta extb

@@ -81,32 +81,33 @@ data ProofState ext err s m a = ProofState
       -> (s -> err -> r)
       -> (m r -> r)
       -> (r -> r -> r)
+      -> (r -> r -> r)
       -> r
   }
 
 instance Alternative (ProofState ext err s m) where
-  ProofState m1 <|> ProofState m2 = ProofState $ \s sub ok cut raise eff alt ->
-    alt (m1 s sub ok cut raise eff alt) (m2 s sub ok cut raise eff alt)
-  empty = ProofState $ \_ _ _ cut _ _ _ -> cut
+  ProofState m1 <|> ProofState m2 = ProofState $ \s sub ok cut raise eff alt mix ->
+    alt (m1 s sub ok cut raise eff alt mix) (m2 s sub ok cut raise eff alt mix)
+  empty = ProofState $ \_ _ _ cut _ _ _ _ -> cut
 
 instance MonadPlus (ProofState ext err s m) where
 
 instance MonadTrans (ProofState ext err s) where
-  lift ma = ProofState $ \s sub ok cut raise eff alt -> eff $
-    fmap (\a -> runProofState (pure a) s sub ok cut raise eff alt) ma
+  lift ma = ProofState $ \s sub ok cut raise eff alt mix -> eff $
+    fmap (\a -> runProofState (pure a) s sub ok cut raise eff alt mix) ma
 
 
 instance MonadState s (ProofState ext err s m) where
-  state f = ProofState $ \s sub _ _ _ _ _ ->
+  state f = ProofState $ \s sub _ _ _ _ _ _ ->
     let (a, s') = f s
      in sub s' a $ \ext ->
-          ProofState $ \s' _ ok' _ _ _ _ -> ok' s' ext
+          ProofState $ \s' _ ok' _ _ _ _ _ -> ok' s' ext
 
 instance MonadReader r m => MonadReader r (ProofState ext err s m) where
   ask = lift ask
   local f (ProofState p) =
-    ProofState $ \s sub ok cut raise eff alt ->
-      eff $ local f $ pure $ p s sub ok cut raise eff alt
+    ProofState $ \s sub ok cut raise eff alt mix ->
+      eff $ local f $ pure $ p s sub ok cut raise eff alt mix
 
 instance MonadReader r m => MonadReader r (RuleT jdg ext err s m) where
   ask = lift ask
@@ -114,50 +115,50 @@ instance MonadReader r m => MonadReader r (RuleT jdg ext err s m) where
 
 
 instance Functor (ProofState ext err s m) where
-  fmap f (ProofState fa) = ProofState $ \s sub ok cut raise eff alt ->
+  fmap f (ProofState fa) = ProofState $ \s sub ok cut raise eff alt mix ->
     fa
       s
       (\s' a k -> sub s' (f a) $ fmap (fmap f) k)
-      ok cut raise eff alt
+      ok cut raise eff alt mix
 
 instance Applicative (ProofState ext err s m) where
-  pure a = ProofState $ \s sub _ _ _ _ _ ->
+  pure a = ProofState $ \s sub _ _ _ _ _ _ ->
     sub s a $ \ext ->
-      ProofState $ \s' _ ok' _ _ _ _ -> ok' s' ext
-  ProofState f <*> ProofState a = ProofState $ \s sub ok cut raise eff alt ->
+      ProofState $ \s' _ ok' _ _ _ _ _ -> ok' s' ext
+  ProofState f <*> ProofState a = ProofState $ \s sub ok cut raise eff alt mix ->
     f s
       (\s' ab k ->
         a
           s'
           (\s'' a k' -> sub s'' (ab a) $ liftA2 (<*>) k k')
-          ok cut raise eff alt)
-      ok cut raise eff alt
+          ok cut raise eff alt mix)
+      ok cut raise eff alt mix
 
 instance Monad (ProofState ext err s m) where
   return = pure
-  ProofState ma >>= f = ProofState $ \s sub ok cut raise eff alt ->
+  ProofState ma >>= f = ProofState $ \s sub ok cut raise eff alt mix ->
     ma s
       (\s' a k ->
         runProofState (applyCont (f <=< k) $ f a)
           s'
           sub
           ok
-          cut raise eff alt)
-      ok cut raise eff alt
+          cut raise eff alt mix)
+      ok cut raise eff alt mix
 
 applyCont
     :: (ext -> ProofState ext err s m a)
     -> ProofState ext err s m a
     -> ProofState ext err s m a
-applyCont k (ProofState m) = ProofState $ \s sub ok cut raise eff alt ->
+applyCont k (ProofState m) = ProofState $ \s sub ok cut raise eff alt mix ->
   m
     s
     (\s' a k' -> sub s' a $ applyCont k . k')
-    (\s' ext -> runProofState (k ext) s' sub ok cut raise eff alt)
+    (\s' ext -> runProofState (k ext) s' sub ok cut raise eff alt mix)
     cut
     raise
     eff
-    alt
+    alt mix
 
 
 
@@ -218,14 +219,22 @@ instance (Show s, Monoid ext, Show a, Show ext, Show err, Monoid s, Show (m Stri
           , s2
           , ")"
           ])
+      (\s1 s2 ->
+        mconcat
+          [ "("
+          , s1
+          , " `interleaveP` "
+          , s2
+          , ")"
+          ])
 
 
 instance MonadState s (TacticT jdg ext err s m) where
   state f = TacticT $ StateT $ \jdg ->
-    ProofState $ \s sub _ _ _ _ _ ->
+    ProofState $ \s sub _ _ _ _ _ _ ->
       let (a, s') = f s
        in sub s' (a, jdg) $ \ext ->
-          ProofState $ \s'' _ ok' _ _ _ _ -> ok' s'' ext
+          ProofState $ \s'' _ ok' _ _ _ _ _ -> ok' s'' ext
 
 
 commit
@@ -234,13 +243,13 @@ commit
     -> TacticT jdg ext err s m a
     -> TacticT jdg ext err s m a
 commit (TacticT t1) (TacticT t2) = tactic2 $ \jdg -> do
-  ProofState $ \s sub ok cut raise eff (alt :: r -> r -> r) -> do
+  ProofState $ \s sub ok cut raise eff (alt :: r -> r -> r) mix -> do
     let run_c2
           :: r
           -> (s -> err -> r)
           -> r
         run_c2 cut' raise' = do
-          runProofState (runStateT t2 jdg) s sub ok cut' raise' eff alt
+          runProofState (runStateT t2 jdg) s sub ok cut' raise' eff alt mix
 
     runProofState (runStateT t1 jdg)
       s
@@ -251,7 +260,7 @@ commit (TacticT t1) (TacticT t2) = tactic2 $ \jdg -> do
         run_c2
           (raise s1 err1)
           (\s2 err2 -> alt (raise s1 err1) (raise s2 err2)))
-      eff alt
+      eff alt mix
 
 
 catch
@@ -259,11 +268,11 @@ catch
     -> (err -> TacticT jdg ext err s m a)
     -> TacticT jdg ext err s m a
 catch (TacticT t) h = tactic2 $ \jdg ->
-  ProofState $ \s sub ok cut raise eff alt ->
+  ProofState $ \s sub ok cut raise eff alt mix ->
     runProofState (runStateT t jdg)
       s sub ok cut
-      (\s' err -> runProofState (tacticToBlah jdg $ h err) s' sub ok cut raise eff alt)
-      eff alt
+      (\s' err -> runProofState (tacticToBlah jdg $ h err) s' sub ok cut raise eff alt mix)
+      eff alt mix
 
 
 tacticToBlah :: jdg -> TacticT jdg ext err s m a -> ProofState ext err s m (a, jdg)
@@ -279,7 +288,7 @@ goal = TacticT get
 
 
 throw :: err -> TacticT jdg ext err s m a
-throw err = TacticT $ lift $ ProofState $ \s _ _ _ raise _ _ -> raise s err
+throw err = TacticT $ lift $ ProofState $ \s _ _ _ raise _ _ _ -> raise s err
 
 
 subgoals
@@ -289,14 +298,14 @@ subgoals
     -> ProofState ext err s m jdg
 subgoals [] p = p
 subgoals (t:ts) (ProofState p) =
-  ProofState $ \s sub ok cut raise eff alt ->
+  ProofState $ \s sub ok cut raise eff alt mix ->
     p
       s
       (\s' jdg k ->
         runProofState (applyCont (subgoals ts . k) $ t jdg)
-          s' sub ok cut raise eff alt
+          s' sub ok cut raise eff alt mix
       )
-      ok cut raise eff alt
+      ok cut raise eff alt mix
 
 
 (<@>)
@@ -323,6 +332,11 @@ proof s p =
       pure r
     )
     (liftA2 (<>))
+    (liftA2 interleave)
+
+interleave :: [a] -> [a] -> [a]
+interleave [] bs = bs
+interleave (a:as) bs = a : interleave bs as
 
 
 rule :: Functor m => (jdg -> RuleT jdg ext err s m ext) -> TacticT jdg ext err s m ()
@@ -336,7 +350,7 @@ ruleToProofState
     :: Functor m
     => RuleT jdg ext err s m ext
     -> ProofState ext err s m jdg
-ruleToProofState r = ProofState $ \s sub ok cut raise eff alt ->
+ruleToProofState r = ProofState $ \s sub ok cut raise eff alt mix ->
   case r of
     ThrowR err ->
       raise s err
@@ -345,10 +359,10 @@ ruleToProofState r = ProofState $ \s sub ok cut raise eff alt ->
     SubgoalR jdg k ->
       sub s jdg $ \ext -> ruleToProofState (k ext)
     EffectR m ->
-      eff $ fmap (\r' -> runProofState (ruleToProofState r') s sub ok cut raise eff alt) m
+      eff $ fmap (\r' -> runProofState (ruleToProofState r') s sub ok cut raise eff alt mix) m
     StatefulR f ->
       let (s', r') = f s
-       in runProofState (ruleToProofState r') s' sub ok cut raise eff alt
+       in runProofState (ruleToProofState r') s' sub ok cut raise eff alt mix
 
 
 runTactic
@@ -369,6 +383,7 @@ proof2 s p = do
     (const $ pure . pure . Left)
     join
     (liftA2 (<>))
+    (liftA2 interleave)
 
 runTacticT
     :: MonadExtract ext m
@@ -393,7 +408,7 @@ proofgoals f s (ProofState p) =
       pure $ \goals -> r $ jdg : goals
       )
     (\s' ext ->
-      pure $ \goals -> ProofState $ \_ _ ok _ raise _ _ ->
+      pure $ \goals -> ProofState $ \_ _ ok _ raise _ _ _ ->
         case goals of
           [] -> ok s' ext
           _ ->
@@ -402,11 +417,18 @@ proofgoals f s (ProofState p) =
               Nothing  -> ok s' ext
       )
     (pure $ const empty)
-    (\s' err -> pure $ const $ ProofState $ \_ _ _ _ raise _ _ -> raise s' err)
-    (\ma -> pure $ \goals -> ProofState $ \s sub ok cut raise eff alt ->
-        eff $ fmap (\gp -> runProofState (gp goals) s sub ok cut raise eff alt) $ join $ ma
+    (\s' err -> pure $ const $ ProofState $ \_ _ _ _ raise _ _ _ -> raise s' err)
+    (\ma -> pure $ \goals -> ProofState $ \s sub ok cut raise eff alt mix ->
+        eff $ fmap (\gp -> runProofState (gp goals) s sub ok cut raise eff alt mix) $ join $ ma
     )
     (liftA2 (liftA2 (<|>)))
+    (liftA2 (liftA2 interleaveP))
+
+interleaveP :: ProofState ext err s m jdg -> ProofState ext err s m jdg -> ProofState ext err s m jdg
+interleaveP p1 p2 = ProofState $ \s sub ok cut raise eff alt mix ->
+  mix
+    (runProofState p1 s sub ok cut raise eff alt mix)
+    (runProofState p2 s sub ok cut raise eff alt mix)
 
 pruning
     :: MonadExtract ext m
@@ -429,12 +451,12 @@ sg
     -> TacticT jdg ext err s m a
 sg a k = do
   jdg <- goal
-  TacticT $ lift $ ProofState $ \s sub _ _ _ _ _ ->
+  TacticT $ lift $ ProofState $ \s sub _ _ _ _ _ _ ->
     sub s a $ fmap fst . tacticToBlah jdg . k
 
 
 axiom :: ext -> TacticT jdg ext err s m a
-axiom ext = TacticT $ lift $ ProofState $ \s _ ok _ _ _ _ ->
+axiom ext = TacticT $ lift $ ProofState $ \s _ ok _ _ _ _ _ ->
   ok s ext
 
 debug :: String -> ProofState ext err s m a -> ProofState ext err s m a
@@ -444,7 +466,7 @@ debug = debug' anythingToString anythingToString anythingToString
 debug' :: (ext -> String) -> (err -> String) -> (s -> String) -> String -> ProofState ext err s m a -> ProofState ext err s m a
 debug' showExt showErr showS lbl (ProofState p) = do
   let l = debugLog showExt showErr showS lbl
-  ProofState $ \s sub ok cut raise eff alt ->
+  ProofState $ \s sub ok cut raise eff alt mix ->
     p s
       (\s' a k     -> flip trace (sub s' a k)      $ l $ DbgSub s' $ anythingToString a)
       (\s' ext     -> flip trace (ok s' ext)       $ l $ DbgOk s' ext)
@@ -452,6 +474,7 @@ debug' showExt showErr showS lbl (ProofState p) = do
       (\s' err     -> flip trace (raise s' err)    $ l $ DbgRaise s' err)
       (\mma        -> flip trace (eff mma)         $ l $ DbgEff)
       (\r1 r2      -> flip trace (alt r1 r2)       $ l $ DbgAlt)
+      (\r1 r2      -> flip trace (mix r1 r2)       $ l $ DbgMix)
 
 
 debugLog :: (ext -> String) -> (err -> String) -> (s -> String) -> String -> DbgItem ext err s -> String
@@ -467,6 +490,7 @@ debugLog showExt showErr showS lbl item =
        (DbgRaise s err) -> "raise\n  - State " <> showS s <> "\n  - Error " <> showErr err
        DbgEff           -> "eff"
        DbgAlt           -> "alt"
+       DbgMix           -> "mix"
     ]
 
 data DbgItem ext err s
@@ -476,6 +500,7 @@ data DbgItem ext err s
   | DbgRaise s err
   | DbgEff
   | DbgAlt
+  | DbgMix
 
 mappingExtract
     :: (ext -> ext)
@@ -494,8 +519,11 @@ mappingExtract f (TacticT t) = TacticT $ StateT $ \jdg ->
 
 choice :: (Monad m) => [TacticT jdg ext err s m a] -> TacticT jdg ext err s m a
 choice [] = empty
-choice (t:ts) = t <|> choice ts
+choice (t:ts) = t <%> choice ts
 
-try :: TacticT jdg ext err s m a -> TacticT jdg ext err s m a
-try t = t <|> empty
+try :: TacticT jdg ext err s m () -> TacticT jdg ext err s m ()
+try t = commit t $ pure ()
+
+(<%>) :: TacticT jdg ext err s m a -> TacticT jdg ext err s m a -> TacticT jdg ext err s m a
+(<%>) a b = tactic2 $ \jdg -> tacticToBlah jdg a `interleaveP` tacticToBlah jdg b
 

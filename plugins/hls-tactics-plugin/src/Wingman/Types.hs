@@ -152,7 +152,7 @@ instance Show UniqSupply where
 -- | A 'UniqSupply' to use in 'defaultTacticState'
 unsafeDefaultUniqueSupply :: UniqSupply
 unsafeDefaultUniqueSupply =
-  unsafePerformIO $ mkSplitUniqSupply '🚒'
+  unsafePerformIO $ mkSplitUniqSupply 'w'
 {-# NOINLINE unsafeDefaultUniqueSupply #-}
 
 
