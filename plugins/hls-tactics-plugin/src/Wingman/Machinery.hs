@@ -79,17 +79,17 @@ runTactic ctx jdg t =
           . unExtractM
           $ runTacticT tacticState jdg t of
       (errs, []) -> Left $ take 50 errs
-      (_, fmap swap -> solns) -> do
+      (_, solns) -> do
         let sorted =
-              flip sortBy solns $ comparing $ \(ext, _) ->
-                Down $ scoreSolution ext jdg []
+              flip sortBy solns $ comparing $ \p ->
+                Down $ scoreSolution (proof_extract p) jdg $ proof_subgoals p
         case sorted of
-          ((syn, _) : _) ->
+          ((proof_extract -> syn) : _) ->
             Right $
               RunTacticResults
                 { rtr_trace = syn_trace syn
                 , rtr_extract = simplify $ syn_val syn
-                , rtr_other_solns = reverse . fmap fst $ sorted
+                , rtr_other_solns = reverse . fmap proof_extract $ sorted
                 , rtr_jdg = jdg
                 , rtr_ctx = ctx
                 }

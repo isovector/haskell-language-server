@@ -160,31 +160,15 @@ instance ( Monad m
 
 instance ( Arbitrary s
          , Arbitrary jdg
-         , EqProp (m [Result s err ext])
-         , Show (m [Result s err ext])
+         , EqProp (m [Either err (Proof jdg s ext)])
+         , Show (m [Either err (Proof jdg s ext)])
          , MonadExtract ext m
          ) => EqProp (TacticT jdg ext err s m a) where
   a =-= b = property $ do
     s <- arbitrary @s
     jdg <- arbitrary @jdg
-    let ma = runTactic s jdg a
-        mb = runTactic s jdg b
-    pure $
-      counterexample (show ma) $
-        counterexample (show mb) $
-          ma =-= mb
-
-instance {-# OVERLAPPING #-}
-         ( Arbitrary s
-         , EqProp (m [Either err (s, Term)])
-         , Show (m [Either err (s, Term)])
-         , MonadExtract Term m
-         ) => EqProp (TacticT Judgement Term err s m a) where
-  a =-= b = property $ do
-    s <- arbitrary @s
-    jdg <- arbitrary @Judgement
-    let ma = runTactic2 s jdg a
-        mb = runTactic2 s jdg b
+    let ma = runTacticT s jdg a
+        mb = runTacticT s jdg b
     pure $
       counterexample (show ma) $
         counterexample (show mb) $
@@ -229,4 +213,5 @@ instance (Eq err, Show err, Eq ext, Show ext, Eq s, Show s) => EqProp (Result s 
 instance EqProp Term
 instance EqProp Judgement
 instance EqProp Type
+instance (EqProp jdg, EqProp s, EqProp ext) => EqProp (Proof jdg s ext)
 

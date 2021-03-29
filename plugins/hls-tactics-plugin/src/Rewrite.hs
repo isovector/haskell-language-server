@@ -11,11 +11,9 @@ import GHC.Generics
 import Control.Monad.State.Strict
 import Control.Applicative
 import Test.QuickCheck.Classes ()
-import GHC.Generics (Generic)
 import Data.Tuple (swap)
 import Debug.RecoverRTTI
 import Debug.Trace (trace)
-import Debug.Trace (traceM)
 import Control.Monad.Reader.Class
 
 data RuleT jdg ext err s m a where
@@ -374,24 +372,38 @@ runTactic
 runTactic s jdg (TacticT t) =
   proof s (flip evalStateT jdg $ t)
 
-proof2 :: MonadExtract ext m => s -> ProofState ext err s m a -> m [Either err (s, ext)]
-proof2 s p = do
+proof3
+    :: MonadExtract ext m
+    => s
+    -> ProofState ext err s m jdg
+    -> [jdg]
+    -> m [Either err (Proof jdg s ext)]
+proof3 s p = do
   runProofState p s
-    (\s' _ x -> proof2 s' $ x =<< lift hole)
-    (\s -> pure . pure . Right . (s, ))
-    (pure [])
-    (const $ pure . pure . Left)
-    join
-    (liftA2 (<>))
-    (liftA2 interleave)
+    (\s' jdg k goals -> do
+        h <- hole
+        proof3 s' (k h) $ jdg : goals
+    )
+    (\s' ext goals -> pure $ pure $ Right $ Proof goals s' ext)
+    (const $ pure empty)
+    (\_ err _ -> pure $ pure $ Left err)
+    (\ma goals -> join $ fmap ($ goals) ma)
+    (liftA2 (liftA2 (<|>)))
+    (liftA2 (liftA2 interleave))
 
 runTacticT
     :: MonadExtract ext m
     => s
     -> jdg
     -> TacticT jdg ext err s m a
-    -> m [Either err (s, ext)]
-runTacticT s jdg (TacticT m) = proof2 s $ execStateT m jdg
+    -> m [Either err (Proof jdg s ext)]
+runTacticT s jdg (TacticT m) = proof3 s (execStateT m jdg) []
+
+data Proof jdg s ext = Proof
+  { proof_subgoals :: [jdg]
+  , proof_state    :: s
+  , proof_extract  :: ext
+  } deriving stock (Eq, Ord, Show, Generic, Functor)
 
 
 proofgoals

@@ -233,17 +233,3 @@ traceShowAnything a = trace (anythingToString a) a
 
 type TIO = TacticT Judgement Term String Int IO
 
-test :: IO ()
-test = do
-  let (t1 :: TIO ()) = do
-        (rule' $ subgoal testJdg >>= \ext -> pure $ Pair ext ext) <|> do
-          lift $ putStrLn "999"
-      (t2 :: TIO ()) = empty
-      (e :: TIO ()) = lift $ putStrLn "io"
-
-  putStrLn ""
-  print =<< (runTactic2 3 testJdg $ commit (e >> t1) t2)
-  putStrLn ""
-  print =<< (runTactic2 3 testJdg $ e >> commit t1 t2)
-  putStrLn ""
-

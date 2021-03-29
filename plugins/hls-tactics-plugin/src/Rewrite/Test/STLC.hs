@@ -32,27 +32,8 @@ instance MonadExtract Term IO where
     putStrLn "making a hole"
     pure $ Hole
 
-proof2 :: MonadExtract ext m => s -> ProofState ext err s m a -> m [Either err (s, ext)]
-proof2 s p = do
-  runProofState p s
-    (\s' _ x -> proof2 s' $ x =<< lift hole)
-    (\s -> pure . pure . Right . (s, ))
-    (pure [])
-    (const $ pure . pure . Left)
-    join
-    (liftA2 (<>))
-    (liftA2 interleave)
-
-runTactic2
-    :: MonadExtract ext m
-    => s
-    -> jdg
-    -> TacticT jdg ext err s m a
-    -> m [Either err (s, ext)]
-runTactic2 s jdg (TacticT m) = proof2 s $ execStateT m jdg
-
-test :: [Either String (Int, Term)]
-test = runIdentity $ runTactic2 (0 :: Int) testJdg $ do
+test :: [Either String (Proof Judgement Int Term)]
+test = runIdentity $ runTacticT (0 :: Int) testJdg $ do
   commit lam $ pure ()
   commit lam $ pure ()
   commit lam $ pure ()
@@ -60,8 +41,8 @@ test = runIdentity $ runTactic2 (0 :: Int) testJdg $ do
   commit lam $ pure ()
   commit lam $ pure ()
   pair
-  assumption
 
+lam :: Functor m => TacticT Judgement Term String s m ()
 lam = rule $ \jdg ->
   case jdg of
     hy :- (t :-> a) -> do

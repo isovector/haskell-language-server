@@ -220,7 +220,9 @@ splitAuto = requireConcreteHole $ tracing "split(auto)" $ do
       case isSplitWhitelisted jdg of
         True -> choice $ fmap splitDataCon dcs
         False -> do
-          choice $ flip fmap dcs $ \dc -> requireNewHoles $
+          -- TODO(sandy): SUPER SKETCHY THAT COMMETING THIS OUT FIXES IT
+          -- looks like pruning doesn't keep the holes
+          choice $ flip fmap dcs $ \dc -> -- requireNewHoles $
             splitDataCon dc
 
 

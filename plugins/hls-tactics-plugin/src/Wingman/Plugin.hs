@@ -142,6 +142,7 @@ mkWorkspaceEdits
 mkWorkspaceEdits span dflags ccs uri pm rtr = do
   for_ (rtr_other_solns rtr) $ \soln -> do
     traceMX "other solution" $ syn_val soln
+    traceMX "with extract" $ syn_trace soln
     traceMX "with score" $ scoreSolution soln (rtr_jdg rtr) []
   traceMX "solution" $ rtr_extract rtr
   let g = graftHole (RealSrcSpan span) rtr
