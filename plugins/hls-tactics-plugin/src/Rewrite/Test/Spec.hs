@@ -1,4 +1,7 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns                 #-}
+{-# LANGUAGE OverloadedStrings            #-}
+{-# OPTIONS_GHC -Wno-deferred-type-errors #-}
+
 module Rewrite.Test.Spec where
 
 import GHC.Generics
@@ -17,6 +20,7 @@ import Data.Functor.Identity
 import Debug.RecoverRTTI (anythingToString)
 import Debug.Trace (trace, traceM)
 import Data.Monoid
+import Control.DeepSeq (force)
 
 
 
@@ -37,16 +41,20 @@ type PS = ProofState Term String [Bool] (State Int) ()
 
 
 spec :: Spec
-spec = modifyMaxSuccess (const 1000) $ do
+spec = modifyMaxSuccess (const 100) $ do
+
+  prop "peek distributes" $ \(t1 :: TT) t2 f ->
+    within (1e5) $
+      (peek f >> t1 <|> t2) =-= ((peek f >> t1) <|> (peek f >> t2))
 
   prop "<@> of repeat is bind" $ \(t1 :: TT) (tt :: TT) ->
     within (1e5) $
       t1 <@> repeat tt =-= (t1 >> tt)
 
   prop "pruning t (const . Just) is t >> throw" $ \(t :: NoEffects ()) e ->
-    (pruning t (const $ Just e)) =-= (t >> throw e :: NoEffects ())
+    (pruning t (const $ Just e)) =-= (t >> throw e)
 
-  prop "pruning (const Nothing) is id" $ \(t :: NoEffects ()) ->
+  prop "pruning (const Nothing) is id" $ \(t :: TT) ->
     pruning t (const Nothing) =-= t
 
   prop "<@> of [] is id" $ \(t1 :: TT) ->
@@ -233,11 +241,26 @@ traceShowAnything a = trace (anythingToString a) a
 
 type TIO = TacticT Judgement Term String Int IO
 
+testJdg2 :: Judgement
+testJdg2 = [] :- ("a" :-> "b" :-> TPair "a" "b")
+
 test :: IO ()
 test = do
-  let (x :: NoEffects ()) = (put 0 >> rule' (subgoal testJdg <* modify (*10))) <|> empty
+  let (x :: NoEffects ()) = do
+        peek $ \case
+          Lam _ Hole -> throw "incomplete"
+          _ -> pure ()
+        lam <|> pure ()
 
-  print $ runIdentity $ runTacticT 2 testJdg x
-  print $ runIdentity $ runTacticT 2 testJdg $ pruning x (const Nothing)
+  print $ force $
+    fmap (fmap proof_extract) $ runIdentity $
+      runDebugTacticT 2 testJdg2 x
 
+
+test2 :: IO ()
+test2 = do
+  let (x :: TIO ()) = do
+        throw "err" >> lift (putStrLn "Oh bother")
+
+  print =<< runTacticT 2 testJdg2 x
 

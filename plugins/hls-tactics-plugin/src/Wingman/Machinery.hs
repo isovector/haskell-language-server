@@ -219,8 +219,8 @@ unify goal inst = do
 -- This is useful when you have a clever pruning solution that isn't always
 -- applicable.
 attemptWhen :: TacticsM a -> TacticsM a -> Bool -> TacticsM a
-attemptWhen _  t2 False = t2
-attemptWhen t1 t2 True  = commit t1 t2
+attemptWhen _  t2 _ = t2
+-- attemptWhen t1 t2 True  = commit t1 t2
 
 
 ------------------------------------------------------------------------------
@@ -240,26 +240,6 @@ methodHypothesis ty = do
     let (_, _, ty) = tcSplitSigmaTy $ idType method
     in ( HyInfo (occName method) (ClassMethodPrv $ Uniquely cls) $ CType $ substTy subst ty
        )
-
-
-------------------------------------------------------------------------------
--- | Mystical time-traveling combinator for inspecting the extracts produced by
--- a tactic. We can use it to guard that extracts match certain predicates, for
--- example.
---
--- Note, that this thing is WEIRD. To illustrate:
---
--- @@
--- peek f
--- blah
--- @@
---
--- Here, @f@ can inspect the extract _produced by @blah@,_  which means the
--- causality appears to go backwards.
---
--- 'peek' should be exposed directly by @refinery@ in the next release.
-peek :: (ext -> TacticT jdg ext err s m ()) -> TacticT jdg ext err s m ()
-peek k = pure () -- tactic $ \j -> Subgoal ((), j) $ \e -> proofState (k e) j
 
 
 ------------------------------------------------------------------------------
@@ -286,8 +266,27 @@ requireConcreteHole m = do
 --
 -- TODO(sandy): Remove this when we upgrade to 0.4
 try'
-    :: Functor m
-    => TacticT jdg ext err s m ()
+    :: TacticT jdg ext err s m ()
     -> TacticT jdg ext err s m ()
 try' t = commit t $ pure ()
+
+
+--------------------------------------------------------------------------------
+---- | Mystical time-traveling combinator for inspecting the extracts produced by
+---- a tactic. We can use it to guard that extracts match certain predicates, for
+---- example.
+----
+---- Note, that this thing is WEIRD. To illustrate:
+----
+---- @@
+---- peek f
+---- blah
+---- @@
+----
+---- Here, @f@ can inspect the extract _produced by @blah@,_  which means the
+---- causality appears to go backwards.
+----
+---- 'peek' should be exposed directly by @refinery@ in the next release.
+--peek :: (ext -> TacticT jdg ext err s m ()) -> TacticT jdg ext err s m ()
+--peek k = tactic $ \j -> Subgoal ((), j) $ \e -> proofState (k e) j
 

@@ -15,6 +15,7 @@ import Data.Tuple (swap)
 import Debug.RecoverRTTI
 import Debug.Trace (trace)
 import Control.Monad.Reader.Class
+import Data.Function (on)
 
 data RuleT jdg ext err s m a where
   ThrowR
@@ -399,6 +400,14 @@ runTacticT
     -> m [Either err (Proof jdg s ext)]
 runTacticT s jdg (TacticT m) = proof3 s (execStateT m jdg) []
 
+runDebugTacticT
+    :: MonadExtract ext m
+    => s
+    -> jdg
+    -> TacticT jdg ext err s m a
+    -> m [Either err (Proof jdg s ext)]
+runDebugTacticT s jdg (TacticT m) = proof3 s (debug "debug" $ execStateT m jdg) []
+
 data Proof jdg s ext = Proof
   { proof_subgoals :: [jdg]
   , proof_state    :: s
@@ -536,6 +545,24 @@ choice (t:ts) = t <%> choice ts
 try :: TacticT jdg ext err s m () -> TacticT jdg ext err s m ()
 try t = commit t $ pure ()
 
-(<%>) :: TacticT jdg ext err s m a -> TacticT jdg ext err s m a -> TacticT jdg ext err s m a
-(<%>) a b = tactic2 $ \jdg -> tacticToBlah jdg a `interleaveP` tacticToBlah jdg b
+(<%>)
+    :: TacticT jdg ext err s m a
+    -> TacticT jdg ext err s m a
+    -> TacticT jdg ext err s m a
+(<%>) a b = tactic2 $ \jdg ->
+  on interleaveP (tacticToBlah jdg) a b
+
+peek :: (ext -> TacticT jdg ext err s m ()) -> TacticT jdg ext err s m ()
+peek f = tactic2 $ \jdg ->
+  ProofState $ \s sub _ _ _ _ _ _ ->
+    sub s ((), jdg) $ tacticToBlah jdg . f
+
+
+reify :: ProofState ext err s m a -> ProofState (ext, ext -> ProofState ext err s m a) err s m a
+reify p =
+  ProofState $ \s sub ok cut raise eff alt mix ->
+    runProofState p s
+      (\s' a k -> sub s' a $ \(ext, k') -> reify $ applyCont k $ k' ext)
+      (\s' ext -> ok s' (ext, \ext' -> ProofState $ \s'' _ ok' _ _ _ _ _ -> ok' s'' ext'))
+      cut raise eff alt mix
 

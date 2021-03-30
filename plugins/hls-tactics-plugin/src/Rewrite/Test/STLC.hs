@@ -14,6 +14,7 @@ import Control.Applicative
 import GHC.Generics (Generic)
 import Debug.Trace (traceM)
 import Data.Functor.Identity (Identity (runIdentity))
+import Control.DeepSeq (force, NFData)
 
 testJdg :: Judgement
 testJdg = [("a1", "a"), ("bee", "b"), ("c", "c")] :- ("a" :-> "b" :-> TPair "a" "b")
@@ -62,6 +63,7 @@ data Term
   | Lam String Term
   | Pair Term Term
   deriving stock (Show, Eq, Generic, Ord)
+  deriving anyclass NFData
 
 instance Semigroup Term where
   a <> _ = a
@@ -76,6 +78,7 @@ data Type
   | Type :-> Type
   | TPair Type Type
   deriving stock (Show, Eq, Generic, Ord)
+  deriving anyclass NFData
 
 infixr 4 :->
 
@@ -86,6 +89,7 @@ instance IsString Type where
 -- A judgement is just a context, along with a goal
 data Judgement = [(String, Type)] :- Type
   deriving stock (Show, Eq, Generic, Ord)
+  deriving anyclass NFData
 
 auto :: Functor m => TacticT Judgement Term String s m ()
 auto = do

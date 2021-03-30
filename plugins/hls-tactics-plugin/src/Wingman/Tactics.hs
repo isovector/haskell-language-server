@@ -6,7 +6,7 @@ module Wingman.Tactics
 import           ConLike (ConLike(RealDataCon))
 import           Control.Applicative (Alternative(empty))
 import           Control.Lens ((&), (%~), (<>~))
-import           Control.Monad (unless)
+import           Control.Monad (unless, when)
 import           Control.Monad.Reader.Class (MonadReader (ask))
 import           Control.Monad.State.Strict (StateT(..), runStateT)
 import           Data.Foldable
@@ -63,16 +63,25 @@ recursion :: TacticsM ()
 -- TODO(sandy): This tactic doesn't fire for the @AutoThetaFix@ golden test,
 -- presumably due to running afoul of 'requireConcreteHole'. Look into this!
 recursion = requireConcreteHole $ tracing "recursion" $ do
+  jdg <- goal
+  let pat_vals = jPatHypothesis jdg
+  _ <- when (M.null pat_vals) empty
   defs <- getCurrentDefinitions
   attemptOn (const defs) $ \(name, ty) -> markRecursion $ do
     -- Peek allows us to look at the extract produced by this block.
+    jdg <- goal
+    let pat_vals = jPatHypothesis jdg
     peek $ \ext -> do
-      jdg <- goal
-      let pat_vals = jPatHypothesis jdg
+      traceMX "recursion goal" jdg
+      traceMX "inside peek with" ext
+      traceMX "want a patval from" pat_vals
       -- Make sure that the recursive call contains at least one already-bound
       -- pattern value. This ensures it is structurally smaller, and thus
       -- suggests termination.
-      unless (any (flip M.member pat_vals) $ syn_used_vals ext) empty
+      unless (any (flip M.member pat_vals) $ syn_used_vals ext) $ do
+        traceMX "throwing inside peek" ext
+        throw $
+          DebugError $ "tried recursion but peek failed with ext: " <> (unsafeRender $ syn_val ext)
 
     let hy' = recursiveHypothesis defs
     localTactic (apply $ HyInfo name RecursivePrv ty) (introduce hy')
@@ -184,7 +193,7 @@ apply hi = requireConcreteHole $ tracing ("apply' " <> show (hi_name hi)) $ do
     unify g (CType ret)
     ext
         <- fmap unzipTrace
-        $ traverse ( newSubgoal
+         $ traverse ( newSubgoal
                     . blacklistingDestruct
                     . flip withNewGoal jdg
                     . CType
@@ -347,9 +356,8 @@ auto' n = do
         destructAuto aname
         loop
     , splitAuto >> loop
-    , do
-      assumption >> loop
-    -- , recursion
+    , assumption >> loop
+    , recursion
     ]
 
 overFunctions :: (HyInfo CType -> TacticsM ()) -> TacticsM ()

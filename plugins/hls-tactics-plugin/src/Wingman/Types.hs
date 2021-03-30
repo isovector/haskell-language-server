@@ -306,6 +306,7 @@ data TacticError
   | UnhelpfulSplit OccName
   | TooPolymorphic
   | NotInScope OccName
+  | DebugError String
   deriving stock (Eq)
 
 instance Show TacticError where
@@ -344,6 +345,8 @@ instance Show TacticError where
       "The tactic isn't applicable because the goal is too polymorphic"
     show (NotInScope name) =
       "Tried to do something with the out of scope name " <> show name
+    show (DebugError err) =
+      "!!!!!!!!!!!!!!" <> err
 
 
 ------------------------------------------------------------------------------
