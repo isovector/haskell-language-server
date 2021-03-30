@@ -233,3 +233,11 @@ traceShowAnything a = trace (anythingToString a) a
 
 type TIO = TacticT Judgement Term String Int IO
 
+test :: IO ()
+test = do
+  let (x :: NoEffects ()) = (put 0 >> rule' (subgoal testJdg <* modify (*10))) <|> empty
+
+  print $ runIdentity $ runTacticT 2 testJdg x
+  print $ runIdentity $ runTacticT 2 testJdg $ pruning x (const Nothing)
+
+

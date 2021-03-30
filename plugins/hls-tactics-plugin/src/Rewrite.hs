@@ -407,20 +407,20 @@ data Proof jdg s ext = Proof
 
 
 proofgoals
-    :: MonadExtract ext m
+    :: Functor m
     => ([jdg] -> Maybe err)
     -> s
     -> ProofState ext err s m jdg
-    -> m ([jdg] -> ProofState ext err s m jdg)
+    -> [jdg] -> ProofState ext err s m jdg
 proofgoals f s (ProofState p) =
   p s
     (\s' jdg k -> do
-      h <- hole
-      r <- proofgoals f s' $ k h
-      pure $ \goals -> r $ jdg : goals
+      \goals ->
+        ProofState $ \s'' sub _ _ _ _ _ _ ->
+          sub s'' jdg $ flip (proofgoals f s') (jdg : goals) . k
       )
     (\s' ext ->
-      pure $ \goals -> ProofState $ \_ _ ok _ raise _ _ _ ->
+      \goals -> ProofState $ \_ _ ok _ raise _ _ _ ->
         case goals of
           [] -> ok s' ext
           _ ->
@@ -428,13 +428,13 @@ proofgoals f s (ProofState p) =
               Just err -> raise s' err
               Nothing  -> ok s' ext
       )
-    (pure $ const empty)
-    (\s' err -> pure $ const $ ProofState $ \_ _ _ _ raise _ _ _ -> raise s' err)
-    (\ma -> pure $ \goals -> ProofState $ \s sub ok cut raise eff alt mix ->
-        eff $ fmap (\gp -> runProofState (gp goals) s sub ok cut raise eff alt mix) $ join $ ma
+    (const empty)
+    (\s' err -> const $ ProofState $ \_ _ _ _ raise _ _ _ -> raise s' err)
+    (\ma goals -> ProofState $ \s sub ok cut raise eff alt mix ->
+        eff $ fmap (\gp -> runProofState (gp goals) s sub ok cut raise eff alt mix) $ ma
     )
-    (liftA2 (liftA2 (<|>)))
-    (liftA2 (liftA2 interleaveP))
+    ((liftA2 (<|>)))
+    (liftA2 interleaveP)
 
 interleaveP :: ProofState ext err s m jdg -> ProofState ext err s m jdg -> ProofState ext err s m jdg
 interleaveP p1 p2 = ProofState $ \s sub ok cut raise eff alt mix ->
@@ -443,7 +443,7 @@ interleaveP p1 p2 = ProofState $ \s sub ok cut raise eff alt mix ->
     (runProofState p2 s sub ok cut raise eff alt mix)
 
 pruning
-    :: MonadExtract ext m
+    :: Functor m
     => TacticT jdg ext err s m ()
     -> ([jdg] -> Maybe err)
     -> TacticT jdg ext err s m ()
@@ -451,7 +451,7 @@ pruning (TacticT t) f = do
   s <- get
   TacticT $ StateT $ \jdg -> do
     let t' = execStateT t jdg
-    go <- lift $ proofgoals f s t'
+    let go = proofgoals f s t'
     fmap ((), ) $ go []
 
 
