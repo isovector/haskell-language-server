@@ -56,6 +56,7 @@ import           Unique (nonDetCmpUnique, Uniquable, getUnique, Unique)
 import           Wingman.Debug
 import           Wingman.FeatureSet
 import Control.DeepSeq (force, NFData)
+import Data.Tuple (swap)
 
 
 ------------------------------------------------------------------------------
@@ -188,16 +189,16 @@ instance Show UniqSupply where
 -- | A 'UniqSupply' to use in 'defaultTacticState'
 unsafeDefaultUniqueSupply :: UniqSupply
 unsafeDefaultUniqueSupply =
-  unsafePerformIO $ mkSplitUniqSupply '🚒'
+  unsafePerformIO $ mkSplitUniqSupply 'w'
 {-# NOINLINE unsafeDefaultUniqueSupply #-}
 
 
 defaultTacticState :: TacticState
 defaultTacticState =
   TacticState
-    { ts_skolems         = mempty
-    , ts_unifier         = emptyTCvSubst
-    , ts_unique_gen      = unsafeDefaultUniqueSupply
+    { ts_skolems    = mempty
+    , ts_unifier    = emptyTCvSubst
+    , ts_unique_gen = unsafeDefaultUniqueSupply
     }
 
 
@@ -342,9 +343,15 @@ unExtractM = flip Strict.evalStateT mempty . unExtractM'
 
 ------------------------------------------------------------------------------
 -- | Orphan instance for producing holes when attempting to solve tactics.
-instance MonadExtract (Synthesized (LHsExpr GhcPs)) TacticError ExtractM where
-  hole = pure . pure . noLoc $ var "_"
-  unsolvableHole _ = pure . pure . noLoc $ var "_"
+instance MonadExtract Unique (Synthesized (LHsExpr GhcPs)) TacticError TacticState ExtractM where
+  hole = do
+    u <- freshUnique
+    pure
+      ( u
+      , pure . noLoc $ var $ fromString $ occNameString $ occName $ mkMetaHoleName u
+      )
+
+  unsolvableHole _ = hole
 
 
 instance MonadReader r m => MonadReader r (TacticT jdg ext err s m) where
@@ -356,18 +363,11 @@ instance MonadReader r m => MonadReader r (RuleT jdg ext err s m) where
   ask = RuleT $ Effect $ fmap Axiom ask
   local f (RuleT m) = RuleT $ Effect $ local f $ pure m
 
-mkMetaHoleName :: Int -> RdrName
+mkMetaHoleName :: Unique -> RdrName
 mkMetaHoleName u = mkRdrUnqual $ mkVarOcc $ "_" <> show u
 
-
-
-instance MonadNamedExtract Int (Synthesized (LHsExpr GhcPs)) ExtractM where
-  namedHole = do
-    u <- ExtractM $ state $ \us -> (us_unique_name us, us & #us_unique_name +~ id @Int 1)
-    h <- pure . pure . noLoc $ var $ fromString $ occNameString $ occName $ mkMetaHoleName u
-    pure (u, h)
-
-instance MetaSubst Int (Synthesized (LHsExpr GhcPs)) where
+instance MetaSubst Unique (Synthesized (LHsExpr GhcPs)) where
+  -- TODO(sandy): This join is to combine the synthesizeds
   substMeta u val a = join $ everywhereM (mkM $ \case
     (L _ (HsVar _ (L _ name)))
       | name == mkMetaHoleName u -> val

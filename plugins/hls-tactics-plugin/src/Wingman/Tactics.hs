@@ -22,7 +22,7 @@ import           GHC.Exts
 import           GHC.SourceGen.Expr
 import           GHC.SourceGen.Overloaded
 import           Name (occNameString, occName)
-import           Refinery.Tactic
+import           Refinery.Tactic hiding (peek, pruning)
 import           Refinery.Tactic.Internal
 import           TcType
 import           Type hiding (Var)

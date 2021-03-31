@@ -78,7 +78,7 @@ runTactic ctx jdg t =
       (Right solns) -> do
         let sorted =
               flip sortBy solns $ comparing $ \(Proof ext _ holes) ->
-                Down $ scoreSolution ext jdg holes
+                Down $ scoreSolution ext jdg $ fmap snd holes
         case sorted of
           ((Proof syn _ _) : _) ->
             Right $
@@ -94,13 +94,14 @@ runTactic ctx jdg t =
 
 
 pruning
-    :: (MetaSubst meta ext, MonadNamedExtract meta ext m)
+    :: (MetaSubst meta ext, MonadExtract meta ext err s m)
     => TacticT jdg ext err s m ()
     -> ([jdg] -> Maybe err)
     -> TacticT jdg ext err s m ()
-pruning t f = reify t $ \goals ext -> case f (fmap snd goals) of
-  Just err -> failure err
-  Nothing  -> resume' goals ext
+pruning t f = reify t $ \proof ->
+  case f (fmap snd $ pf_unsolvedGoals proof) of
+    Just err -> failure err
+    Nothing  -> resume' proof
 
 
 fastFail :: TacticsM () -> TacticsM ()
@@ -330,8 +331,8 @@ requireConcreteHole m = do
 --
 -- TODO(sandy): Remove this when we upgrade to 0.4
 try'
-    :: Functor m
+    :: (MetaSubst meta ext, MonadExtract meta ext err s m, Functor m)
     => TacticT jdg ext err s m ()
     -> TacticT jdg ext err s m ()
-try' t = commit t $ pure ()
+try' t = attempt t $ pure ()
 
