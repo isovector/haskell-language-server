@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 module Wingman.Tactics
   ( module Wingman.Tactics
   , runTactic
@@ -5,10 +6,11 @@ module Wingman.Tactics
 
 import           ConLike (ConLike(RealDataCon))
 import           Control.Applicative (Alternative(empty))
-import           Control.Lens ((&), (%~), (<>~))
+import           Control.Lens ((&), (%~), (<>~), (%=))
 import           Control.Monad (unless)
 import           Control.Monad.Reader.Class (MonadReader (ask))
-import           Control.Monad.State.Strict (StateT(..), runStateT)
+import           Control.Monad.State.Strict (StateT(..), runStateT, gets)
+import           Control.Monad.Trans.Class (lift)
 import           Data.Foldable
 import           Data.Generics.Labels ()
 import           Data.List
@@ -333,11 +335,20 @@ refine = do
   try' splitSingle
   try' intros
 
-cantSynthesize :: Judgement -> TacticsM a
-cantSynthesize = failure . CantSynthesize . jGoal
+cantSynthesize :: TacticsM a
+cantSynthesize = do
+  g       <- inspect jGoal
+  skolems <- gets ts_skolems
+  fp <- inspect $ jFingerprint skolems
+  for_ fp $ \finger ->  do
+    unless (containsUniVars skolems $ unCType g) $ do
+      lift $ #us_failureset %= insertFailure finger g
+  empty
 
 auto' :: Int -> TacticsM ()
-auto' 0 = goal >>= cantSynthesize
+-- TODO(sandy): ran out of gas! give a different error that the frontend can
+-- branch on for better messages
+auto' 0 = empty
 auto' n = do
   let loop = auto' (n - 1)
   try intros
@@ -354,7 +365,7 @@ auto' n = do
         , assumption >> loop
         , recursion
         ])
-      $ goal >>= cantSynthesize
+      $ cantSynthesize
 
 overFunctions :: (HyInfo CType -> TacticsM ()) -> TacticsM ()
 overFunctions =

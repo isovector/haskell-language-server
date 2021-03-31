@@ -32,6 +32,7 @@ import           Unify
 import           Wingman.Judgements
 import           Wingman.Simplify (simplify)
 import           Wingman.Types
+import Control.Applicative (empty)
 
 
 substCTy :: TCvSubst -> CType -> CType
@@ -106,27 +107,18 @@ pruning t f = reify t $ \proof ->
 
 fastFail :: TacticsM () -> TacticsM ()
 fastFail m = do
-  fs     <- liftUnderlyingState $ gets us_failureset
+  fs     <- lift $ gets us_failureset
   g      <- inspect jGoal
-  finger <- inspect jFingerprint
-  case definiteFailure fs finger g of
-    True -> do
-      traceMX "failing fast" (finger, g)
-      failure $ DebugError "failing fast from a subsumed fingerprint"
-    False -> do
-      traceMX "installing handler for " (finger, g)
-      handler $ \err ->
-        case err of
-          CantSynthesize ty -> do
-            traceMX "adding failure" (err, finger, g)
-            #us_failureset %= insertFailure finger g
-            pure err
-          _ -> pure err
-      m
-
-
-liftUnderlyingState :: (forall m. MonadState UnderlyingState m => m a) -> TacticsM a
-liftUnderlyingState = TacticT . lift . Effect . fmap pure . ExtractM
+  skolems <- gets ts_skolems
+  fp <- inspect $ jFingerprint skolems
+  case fp of
+    Just finger ->
+      case definiteFailure fs finger g of
+        True  -> do
+          traceMX "fast failing" fs
+          empty
+        False -> m
+    Nothing -> m
 
 
 tracePrim :: String -> Trace
@@ -331,8 +323,11 @@ requireConcreteHole m = do
 --
 -- TODO(sandy): Remove this when we upgrade to 0.4
 try'
-    :: (MetaSubst meta ext, MonadExtract meta ext err s m, Functor m)
+    :: (MetaSubst meta ext, MonadExtract meta ext err s m)
     => TacticT jdg ext err s m ()
     -> TacticT jdg ext err s m ()
-try' t = attempt t $ pure ()
+try' t = commit t $ pure ()
+
+
+
 

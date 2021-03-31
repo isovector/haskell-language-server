@@ -81,8 +81,8 @@ introduceHypothesis f ns =
     HyInfo name (f (length ns) pos) ty
 
 
-jFingerprint :: Judgement -> HyFinger
-jFingerprint = mkFingerprint . jHypothesis
+jFingerprint :: Set TyVar -> Judgement -> Maybe HyFinger
+jFingerprint skolems = mkFingerprint skolems . jHypothesis
 
 
 ------------------------------------------------------------------------------

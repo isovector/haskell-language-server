@@ -44,7 +44,7 @@ import           Development.IDE.Types.Location
 import           GHC.Exts (fromString)
 import           GHC.Generics (Generic)
 import           GHC.SourceGen (var)
-import           GhcPlugins (mkRdrUnqual)
+import           GhcPlugins (mkRdrUnqual, tyCoVarsOfTypeWellScoped)
 import           OccName
 import           Refinery.ProofState (ProofStateT(Effect, Axiom))
 import           Refinery.Tactic
@@ -321,7 +321,7 @@ type Judgement = Judgement' CType
 
 
 data UnderlyingState = UnderlyingState
-  { us_unique_name :: Int
+  { us_unique_name :: !Int
   , us_failureset :: FailureSet
   }
   deriving stock (Generic, Data, Typeable)
@@ -343,9 +343,9 @@ unExtractM = flip Strict.evalStateT mempty . unExtractM'
 
 ------------------------------------------------------------------------------
 -- | Orphan instance for producing holes when attempting to solve tactics.
-instance MonadExtract Unique (Synthesized (LHsExpr GhcPs)) TacticError TacticState ExtractM where
+instance MonadExtract Int (Synthesized (LHsExpr GhcPs)) TacticError TacticState ExtractM where
   hole = do
-    u <- freshUnique
+    u <- lift $! gets us_unique_name <* modify' (#us_unique_name +~ 1)
     pure
       ( u
       , pure . noLoc $ var $ fromString $ occNameString $ occName $ mkMetaHoleName u
@@ -363,10 +363,10 @@ instance MonadReader r m => MonadReader r (RuleT jdg ext err s m) where
   ask = RuleT $ Effect $ fmap Axiom ask
   local f (RuleT m) = RuleT $ Effect $ local f $ pure m
 
-mkMetaHoleName :: Unique -> RdrName
+mkMetaHoleName :: Int -> RdrName
 mkMetaHoleName u = mkRdrUnqual $ mkVarOcc $ "_" <> show u
 
-instance MetaSubst Unique (Synthesized (LHsExpr GhcPs)) where
+instance MetaSubst Int (Synthesized (LHsExpr GhcPs)) where
   -- TODO(sandy): This join is to combine the synthesizeds
   substMeta u val a = join $ everywhereM (mkM $ \case
     (L _ (HsVar _ (L _ name)))
@@ -580,8 +580,17 @@ hyfIsSubsumedByAny :: HyFinger -> [HyFinger] -> Bool
 hyfIsSubsumedByAny hf hfs = any (flip hyfIsSubsumedBy hf) hfs
 
 
-mkFingerprint :: Hypothesis CType -> HyFinger
-mkFingerprint = HyFinger . S.fromList . fmap hi_type . unHypothesis
+mkFingerprint :: Set TyVar -> Hypothesis CType -> Maybe HyFinger
+mkFingerprint skolems hy =
+  let tys = S.fromList $ fmap hi_type $ unHypothesis hy
+   in case any (containsUniVars skolems . unCType) tys of
+        True  -> Nothing
+        False -> pure $ HyFinger tys
+
+containsUniVars :: Set TyVar -> Type -> Bool
+containsUniVars skolems ty =
+  let vars = tyCoVarsOfTypeWellScoped ty
+   in S.null $ S.fromList vars S.\\ skolems
 
 
 newtype FailureSet = FailureSet
