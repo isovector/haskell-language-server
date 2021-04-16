@@ -48,7 +48,7 @@ emptyCaseLensCommandId = CommandId "wingman.emptyCase"
 workspaceEditHandler :: CommandFunction IdeState WorkspaceEdit
 workspaceEditHandler _ideState wedit = do
   _ <- sendRequest SWorkspaceApplyEdit (ApplyWorkspaceEditParams Nothing wedit) (\_ -> pure ())
-  return $ Right Null
+  pure $ Right Null
 
 
 ------------------------------------------------------------------------------
@@ -75,10 +75,11 @@ codeLensProvider state plId (CodeLensParams _ _ (TextDocumentIdentifier uri))
               destructionFor
                 (foldMap (hySingleton . occName . fst) bindings)
                 ty
-          edits <- liftMaybe $ hush $
-                mkWorkspaceEdits dflags ccs uri (unTrack pm) $
-                  graftMatchGroup (RealSrcSpan $ unTrack ss) $
-                    noLoc matches
+          edits <-
+            liftMaybe $ hush $
+              mkWorkspaceEdits dflags ccs uri (unTrack pm) $
+                graftMatchGroup (RealSrcSpan $ unTrack ss) $
+                  mergeMatches matches
 
           pure $
             CodeLens range
@@ -91,6 +92,17 @@ codeLensProvider state plId (CodeLensParams _ _ (TextDocumentIdentifier uri))
               )
               Nothing
 codeLensProvider _ _ _ = pure $ Right $ List []
+
+
+getCtor :: Match GhcPs (LHsExpr GhcPs) -> Maybe (IdP GhcPs)
+
+
+-- mergeMatches
+--     :: [LMatch GhcPs (LHsExpr GhcPs)]
+--     -> [LMatch GhcPs (LHsExpr GhcPs)]
+--     -> [LMatch GhcPs (LHsExpr GhcPs)]
+-- mergeMatches new old =
+--   let missing_matches =
 
 
 ------------------------------------------------------------------------------
@@ -113,12 +125,12 @@ hush (Right a) = Just a
 -- 'Match's that bind variables.
 graftMatchGroup
     :: SrcSpan
-    -> Located [LMatch GhcPs (LHsExpr GhcPs)]
+    ->([LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)])
     -> Graft (Either String) ParsedSource
-graftMatchGroup ss l =
+graftMatchGroup ss f =
   hoistGraft (runExcept . runExceptString) $ graftExprWithM ss $ \case
     L span (HsCase ext scrut mg@_) -> do
-      pure $ Just $ L span $ HsCase ext scrut $ mg { mg_alts = l }
+      pure $ Just $ L span $ HsCase ext scrut $ mg { mg_alts = noLoc $ f $ unLoc $ mg_alts mg }
     (_ :: LHsExpr GhcPs) -> pure Nothing
 
 
@@ -134,24 +146,24 @@ emptyCaseScrutinees
     -> NormalizedFilePath
     -> MaybeT IO [(Tracked 'Current RealSrcSpan, Type)]
 emptyCaseScrutinees state nfp = do
-    TrackedStale tcg tcg_map <- fmap (fmap tmrTypechecked) $ runStaleIde state nfp TypeCheck
-    let tcg' = unTrack tcg
-    hscenv <- runStaleIde state nfp GhcSessionDeps
+  TrackedStale tcg tcg_map <- fmap (fmap tmrTypechecked) $ runStaleIde state nfp TypeCheck
+  let tcg' = unTrack tcg
+  hscenv <- runStaleIde state nfp GhcSessionDeps
 
-    let scrutinees = traverse (emptyCaseQ . tcg_binds) tcg
-    for scrutinees $ \aged@(unTrack -> (ss, scrutinee)) -> do
-      ty <- MaybeT $ typeCheck (hscEnv $ untrackedStaleValue hscenv) tcg' scrutinee
-      case ss of
-        RealSrcSpan r   -> do
-          rss' <- liftMaybe $ mapAgeTo tcg_map $ unsafeCopyAge aged r
-          pure (rss', ty)
-        UnhelpfulSpan _ -> empty
+  let scrutinees = traverse (emptyCaseQ . tcg_binds) tcg
+  for scrutinees $ \aged@(unTrack -> (ss, scrutinee)) -> do
+    ty <- MaybeT $ typeCheck (hscEnv $ untrackedStaleValue hscenv) tcg' scrutinee
+    case ss of
+      RealSrcSpan r   -> do
+        rss' <- liftMaybe $ mapAgeTo tcg_map $ unsafeCopyAge aged r
+        pure (rss', ty)
+      UnhelpfulSpan _ -> empty
 
 
 ------------------------------------------------------------------------------
 -- | Get the 'SrcSpan' and scrutinee of every empty case.
 emptyCaseQ :: GenericQ [(SrcSpan, HsExpr GhcTc)]
 emptyCaseQ = everything (<>) $ mkQ mempty $ \case
-  L new_span (Case scrutinee []) -> pure (new_span, scrutinee)
+  L new_span (Case scrutinee _) -> pure (new_span, scrutinee)
   (_ :: LHsExpr GhcTc) -> mempty
 
