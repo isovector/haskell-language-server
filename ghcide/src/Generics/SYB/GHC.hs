@@ -1,21 +1,75 @@
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE RankNTypes  #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DerivingVia         #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE RankNTypes          #-}
 
 -- | Custom SYB traversals explicitly designed for operating over the GHC AST.
+{-# LANGUAGE DeriveDataTypeable #-}
 module Generics.SYB.GHC
     ( genericIsSubspan,
       mkBindListT,
       everywhereM',
       smallestM,
-      largestM
+      largestM,
+      mkQ1,
+      genericDefinitelyNotIsSubspan,
     ) where
 
-import Control.Monad
-import Data.Functor.Compose (Compose(Compose))
-import Data.Monoid (Any(Any))
-import Development.IDE.GHC.Compat
-import Development.Shake.Classes
-import Generics.SYB
+import           Control.Monad
+import           Data.Bool
+import           Data.Functor.Compose (Compose(Compose))
+import           Data.Monoid (Any(Any))
+import           Data.Semigroup (Min(Min))
+import           Development.IDE.GHC.Compat
+import           Development.Shake.Classes
+import qualified GHC.Exts as GHC
+import           Generics.SYB hiding (typeRep)
+import           Type.Reflection
+import           Unsafe.Coerce (unsafeCoerce)
+
+
+data QueryResult
+  = Success
+  | Failure
+  | Unknown
+  | Pruned
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+  deriving (Semigroup, Monoid) via Min QueryResult
+
+
+-- | Like 'mkQ', but allows for polymorphic instantiation of its specific case.
+-- This instantation matches whenever the dynamic value has the same
+-- constructor as the proxy @f ()@ value.
+mkQ1 :: forall a r f
+      . (Data a, Data (f ()))
+     => f ()                  -- ^ Polymorphic constructor to match on
+     -> r                     -- ^ Default value
+     -> (forall b. f b -> r)  -- ^ Polymorphic match
+     -> a
+     -> r
+mkQ1 proxy r br a =
+    case l_con == a_con && sameTypeModuloLastApp @a @(f ()) of
+      -- We have proven that the two values share the same constructor, and
+      -- that they have the same type if you ignore the final application.
+      -- Therefore, it is safe to coerce @a@ to @f b@, since @br@ is universal
+      -- over @b@ and can't inspect it.
+      True  -> br $ unsafeCoerce @_ @(f GHC.Any) a
+      False -> r
+  where
+    l_con = toConstr proxy
+    a_con = toConstr a
+
+-- | Given @a ~ f1 a1@ and @b ~ f2 b2@, returns true if @f1 ~ f2@.
+sameTypeModuloLastApp :: forall a b. (Typeable a, Typeable b) => Bool
+sameTypeModuloLastApp =
+  let tyrep1 = typeRep @a
+      tyrep2 = typeRep @b
+   in case (tyrep1 , tyrep2) of
+        (App a _, App b _) ->
+          case eqTypeRep a b of
+            Just HRefl -> True
+            Nothing    -> False
+        _ -> False
 
 
 -- | A generic query intended to be used for calling 'smallestM' and
@@ -30,8 +84,18 @@ genericIsSubspan ::
     Proxy (Located ast) ->
     SrcSpan ->
     GenericQ (Maybe Bool)
-genericIsSubspan _ dst = mkQ Nothing $ \case
+genericIsSubspan _ dst =
+  genericDefinitelyNotIsSubspan dst `extQ` \case
   (L span _ :: Located ast) -> Just $ dst `isSubspanOf` span
+
+
+-- | Returns 'Just False' if it encounters a 'Located' which doesn't contain
+-- the given 'SrcSpan', 'Nothing' otherwise.
+genericDefinitelyNotIsSubspan
+    :: SrcSpan
+    -> GenericQ (Maybe Bool)
+genericDefinitelyNotIsSubspan dst = mkQ1 (L noSrcSpan ()) Nothing $ \case
+  L span _ -> bool (Just False) Nothing $ dst `isSubspanOf` span
 
 
 -- | Lift a function that replaces a value with several values into a generic
@@ -73,15 +137,15 @@ type GenericMQ r m = forall a. Data a => a -> m (r, a)
 smallestM :: forall m. Monad m => GenericQ (Maybe Bool) -> GenericM m -> GenericM m
 smallestM q f = fmap snd . go
   where
-    go :: GenericMQ Any m
+    go :: GenericMQ (Maybe Any) m
     go x = do
       case q x of
         Nothing -> gmapMQ go x
         Just True -> do
           it@(r, x') <- gmapMQ go x
           case r of
-            Any True -> pure it
-            Any False -> fmap (Any True,) $ f x'
+            Just (Any True) -> pure it
+            _ -> fmap (Just $ Any True,) $ f x'
         Just False -> pure (mempty, x)
 
 ------------------------------------------------------------------------------
@@ -122,4 +186,8 @@ gmapMQ f = runMonadicQuery . gfoldl k pure
   where
     k :: Data d => MonadicQuery r f (d -> b) -> d -> MonadicQuery r f b
     k c x = c <*> MonadicQuery (f x)
+
+
+data Test = Test [Int] [Bool]
+  deriving Data
 
