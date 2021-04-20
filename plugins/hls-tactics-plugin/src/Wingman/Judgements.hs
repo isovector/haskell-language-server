@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 module Wingman.Judgements where
 
 import           ConLike (ConLike)
@@ -6,7 +8,9 @@ import           Control.Lens hiding (Context)
 import           Data.Bool
 import           Data.Char
 import           Data.Coerce
+import           Data.Function (on)
 import           Data.Generics.Product (field)
+import           Data.List (groupBy, sortOn)
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Maybe
@@ -230,6 +234,77 @@ provAncestryOf (ClassMethodPrv _) = mempty
 provAncestryOf UserPrv = mempty
 provAncestryOf RecursivePrv = mempty
 provAncestryOf (DisallowedPrv _ p2) = provAncestryOf p2
+
+
+data Ancestor
+  = TopLevel Int
+  | PatternMatch OccName (Uniquely ConLike) Int
+  deriving (Eq, Ord, Show)
+
+
+bindingGroup :: Provenance -> Maybe (Maybe (Uniquely ConLike), OccName)
+bindingGroup (TopLevelArgPrv o5 _ _)
+  = Just (Nothing, o5)
+bindingGroup
+  (PatternMatchPrv (PatVal (Just o) _ uc _))
+    = Just (Just uc, o)
+bindingGroup (DisallowedPrv _ p2) = bindingGroup p2
+bindingGroup _ = Nothing
+
+
+data BindingGroups = BindingGroups
+  { bg_assoc :: [[OccName]]
+  , bg_map   :: M.Map OccName Int
+  }
+  deriving (Eq, Ord, Show)
+
+
+bindingGroups :: Hypothesis a -> BindingGroups
+bindingGroups
+  = mkBindingGroups
+  . fmap (fmap $ hi_name . fst)
+  . groupBy ((==) `on` snd)
+  . sortOn snd
+  . mapMaybe (\hi -> fmap (hi, ) $ bindingGroup $ hi_provenance hi)
+  . unHypothesis
+
+
+mkBindingGroups :: [[OccName]] -> BindingGroups
+mkBindingGroups bgs = BindingGroups
+  { bg_assoc = bgs
+  , bg_map = M.fromList $ do
+      (ix, names) <- zip [0..] bgs
+      fmap (, ix) names
+  }
+
+
+bindingOrder :: Provenance -> Maybe Int
+bindingOrder (TopLevelArgPrv _ i _) = Just i
+bindingOrder (PatternMatchPrv (PatVal _ _ _ i)) = Just i
+bindingOrder (DisallowedPrv _ p2) = bindingOrder p2
+bindingOrder _ = Nothing
+
+
+analogousVars :: BindingGroups -> Hypothesis a -> [[OccName]]
+analogousVars bgs
+  = fmap (fmap $ hi_name . fst)
+  . groupBy ((==) `on` snd)
+  . sortOn snd
+  . mapMaybe (\hi -> do
+      let prov = hi_provenance hi
+      ancestor <- provImmediateAncestor prov
+      parent_bg <- M.lookup ancestor $ bg_map bgs
+      order <- bindingOrder prov
+      bg <- bindingGroup prov
+      pure (hi, (parent_bg <$ bg, order))
+    )
+  . unHypothesis
+
+
+provImmediateAncestor :: Provenance -> Maybe OccName
+provImmediateAncestor (PatternMatchPrv (PatVal o _ _ _)) = o
+provImmediateAncestor (DisallowedPrv _ p2) = provImmediateAncestor p2
+provImmediateAncestor _ = Nothing
 
 
 ------------------------------------------------------------------------------

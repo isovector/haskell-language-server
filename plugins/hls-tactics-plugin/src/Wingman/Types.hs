@@ -16,7 +16,7 @@ module Wingman.Types
 import           ConLike (ConLike)
 import           Control.Lens hiding (Context)
 import           Control.Monad.Reader
-import           Control.Monad.State
+import           Control.Monad.State.Strict
 import           Data.Coerce
 import           Data.Function
 import           Data.Generics.Product (field)
@@ -286,8 +286,8 @@ data Judgement' a = Judgement
 type Judgement = Judgement' CType
 
 
-newtype ExtractM a = ExtractM { unExtractM :: Reader Context a }
-    deriving newtype (Functor, Applicative, Monad, MonadReader Context)
+newtype ExtractM a = ExtractM { unExtractM :: StateT Int (Reader Context) a }
+    deriving newtype (Functor, Applicative, Monad, MonadReader Context, MonadState Int)
 
 ------------------------------------------------------------------------------
 -- | Orphan instance for producing holes when attempting to solve tactics.

@@ -34,6 +34,7 @@ import           Wingman.Judgements
 import           Wingman.Machinery
 import           Wingman.Naming
 import           Wingman.Types
+import Control.Monad.Trans (lift)
 
 
 ------------------------------------------------------------------------------
@@ -99,7 +100,7 @@ intros = rule $ \jdg -> do
   case tcSplitFunTys $ unCType g of
     ([], _) -> throwError $ GoalMismatch "intros" g
     (as, b) -> do
-      let vs = mkManyGoodNames (hyNamesInScope $ jEntireHypothesis jdg) as
+      vs <- lift $ mkManyBadNames as
       let top_hole = isTopHole ctx jdg
           hy' = lambdaHypothesis top_hole $ zip vs $ coerce as
           jdg' = introduce hy'

@@ -7,7 +7,7 @@ import           Control.Lens ((<>~))
 import           Control.Monad.Error.Class
 import           Control.Monad.Reader
 import           Control.Monad.State.Class (gets, modify)
-import           Control.Monad.State.Strict (StateT (..))
+import           Control.Monad.State.Strict (StateT (..), evalStateT)
 import           Data.Bool (bool)
 import           Data.Coerce
 import           Data.Either
@@ -74,6 +74,7 @@ runTactic ctx jdg t =
             }
     in case partitionEithers
           . flip runReader ctx
+          . flip evalStateT 0
           . unExtractM
           $ runTacticT t jdg tacticState of
       (errs, []) -> Left $ take 50 errs
@@ -82,7 +83,10 @@ runTactic ctx jdg t =
               flip sortBy solns $ comparing $ \(ext, (_, holes)) ->
                 Down $ scoreSolution ext jdg holes
         case sorted of
-          ((syn, _) : _) ->
+          ((syn, _) : _) -> do
+            let bgs = bindingGroups $ syn_scoped syn
+            traceMX "binding groups" $ bg_assoc bgs
+            traceMX "analogous" $ analogousVars bgs $ syn_scoped syn
             Right $
               RunTacticResults
                 { rtr_trace = syn_trace syn

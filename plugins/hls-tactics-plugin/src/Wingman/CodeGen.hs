@@ -69,9 +69,10 @@ destructMatches use_field_puns f scrut t jdg = do
         modify $ appEndo $ foldMap (Endo . evidenceToSubst) ev
         subst <- gets ts_unifier
 
+        names <- lift $ mkManyBadNames args
         let names_in_scope = hyNamesInScope hy
-            names = mkManyGoodNames (hyNamesInScope hy) args
             (names', destructed) =
+              -- TODO(sandy): concerning re: names in scope
               mkDestructPat (bool Nothing (Just names_in_scope) use_field_puns) con names
 
         let hy' = patternHypothesis scrut con jdg
@@ -94,7 +95,7 @@ destructMatches use_field_puns f scrut t jdg = do
 destructionFor :: Hypothesis a -> Type -> Maybe [LMatch GhcPs (LHsExpr GhcPs)]
 -- TODO(sandy): In an ideal world, this would be the same codepath as
 -- 'destructMatches'. Make sure to change that if you ever change this.
-destructionFor hy t = do
+destructionFor _hy t = do
   case tacticsGetDataCons t of
     Nothing -> Nothing
     Just ([], _) -> Nothing
@@ -102,7 +103,7 @@ destructionFor hy t = do
       for dcs $ \dc -> do
         let con   = RealDataCon dc
             args  = conLikeInstOrigArgTys' con apps
-            names = mkManyGoodNames (hyNamesInScope hy) args
+            names = flip evalState 0 $ mkManyBadNames args
         pure
           . noLoc
           . Match

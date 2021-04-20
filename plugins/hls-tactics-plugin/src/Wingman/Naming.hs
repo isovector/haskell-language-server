@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 module Wingman.Naming where
 
 import           Control.Arrow
@@ -5,7 +6,7 @@ import           Control.Monad.State.Strict
 import           Data.Aeson (camelTo2)
 import           Data.Bool (bool)
 import           Data.Char
-import           Data.List (isPrefixOf)
+import           Data.List
 import           Data.List.Extra (split)
 import           Data.Map (Map)
 import qualified Data.Map as M
@@ -245,6 +246,16 @@ mkManyGoodNames in_scope args =
     let n = mkGoodName in_scope at
     modify $ S.insert n
     pure n
+
+
+mkManyBadNames
+    :: (MonadState Int m, Traversable f)
+    => f Type
+    -> m (f OccName)
+mkManyBadNames = traverse $ const $ do
+  i <- get
+  put $ i + 1
+  pure $ mkVarOcc $ "xx" <> show i
 
 
 ------------------------------------------------------------------------------
