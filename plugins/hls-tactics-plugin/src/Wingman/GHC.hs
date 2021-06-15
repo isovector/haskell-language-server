@@ -25,7 +25,7 @@ import           DsExpr (dsExpr)
 import           DsMonad (initDs)
 import           FamInst (tcLookupDataFamInst_maybe)
 import           FamInstEnv (normaliseType)
-import           GHC.SourceGen (lambda)
+import           GHC.SourceGen (lambda, case', match)
 import           Generics.SYB (Data, everything, everywhere, listify, mkQ, mkT)
 import           GhcPlugins (extractModule, GlobalRdrElt (gre_name), Role (Nominal))
 import           OccName
@@ -251,6 +251,16 @@ pattern Case :: PatCompattable p => HsExpr p -> [(Pat p, LHsExpr p)] -> HsExpr p
 pattern Case scrutinee matches <-
   HsCase _ (L _ scrutinee)
     (MG {mg_alts = L _ (fmap unLoc -> unpackMatches -> Just matches)})
+
+------------------------------------------------------------------------------
+-- | A pattern over the otherwise (extremely) messy AST for lambdas.
+pattern CasePs :: HsExpr GhcPs -> [(Pat GhcPs, LHsExpr GhcPs)] -> HsExpr GhcPs
+pattern CasePs scrutinee matches <-
+  HsCase _ (L _ scrutinee)
+    (MG {mg_alts = L _ (fmap unLoc -> unpackMatches -> Just matches)})
+  where
+    CasePs scrutinee matches = case' scrutinee $ matches <&> \(pat, expr) ->
+      match [pat] $ unLoc expr
 
 
 ------------------------------------------------------------------------------

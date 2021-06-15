@@ -2,8 +2,10 @@ module Wingman.CaseSplit
   ( mkFirstAgda
   , iterateSplit
   , splitToDecl
+  , caseOfCase
   ) where
 
+import           Control.Arrow ((***))
 import           Data.Bool (bool)
 import           Data.Data
 import           Data.Generics
@@ -11,7 +13,7 @@ import           Data.Set (Set)
 import qualified Data.Set as S
 import           Development.IDE.GHC.Compat
 import           GHC.Exts (IsString (fromString))
-import           GHC.SourceGen (funBinds, match, wildP)
+import           GHC.SourceGen (funBinds, match, wildP, case')
 import           OccName
 import           Wingman.GHC
 import           Wingman.Types
@@ -24,6 +26,14 @@ import           Wingman.Types
 mkFirstAgda :: [Pat GhcPs] -> HsExpr GhcPs -> AgdaMatch
 mkFirstAgda pats (Lambda pats' body) = mkFirstAgda (pats <> pats') body
 mkFirstAgda pats body                = AgdaMatch pats body
+
+
+caseOfCase :: HsExpr GhcPs -> LHsExpr GhcPs
+caseOfCase (CasePs scrutinee matches) =
+  splitToExpr scrutinee $
+    iterateSplit =<<
+      fmap (uncurry mkFirstAgda . (pure *** unLoc)) matches
+caseOfCase x = noLoc x
 
 
 ------------------------------------------------------------------------------
@@ -68,7 +78,6 @@ rewriteVarPat name rep = everywhere $
     (x :: HsRecField' (FieldOcc GhcPs) (PatCompat GhcPs)) -> x
 
 
-
 ------------------------------------------------------------------------------
 -- | Construct an 'HsDecl' from a set of 'AgdaMatch'es.
 splitToDecl
@@ -76,6 +85,16 @@ splitToDecl
     -> [AgdaMatch]
     -> LHsDecl GhcPs
 splitToDecl name ams = noLoc $ funBinds (fromString . occNameString . occName $ name) $ do
+  AgdaMatch pats body <- ams
+  pure $ match pats body
+
+------------------------------------------------------------------------------
+-- | Construct an 'HsDecl' from a set of 'AgdaMatch'es.
+splitToExpr
+    :: HsExpr GhcPs
+    -> [AgdaMatch]
+    -> LHsExpr GhcPs
+splitToExpr scrutinee ams = noLoc $ case' scrutinee $ do
   AgdaMatch pats body <- ams
   pure $ match pats body
 
