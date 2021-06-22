@@ -62,7 +62,7 @@ descriptor plId = (defaultPluginDescriptor plId)
       , mkPluginHandler STextDocumentCodeLens codeLensProvider
       , mkPluginHandler STextDocumentHover hoverProvider
       ]
-  , pluginRules = wingmanRules plId
+  , pluginRules = wingmanMetaprogramCacheRules plId <> wingmanRules plId
   , pluginConfigDescriptor =
       defaultConfigDescriptor {configCustomConfig = mkCustomConfig properties}
   , pluginModifyDynflags = staticPlugin

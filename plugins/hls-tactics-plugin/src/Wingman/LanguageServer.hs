@@ -26,6 +26,7 @@ import           Data.Maybe
 import           Data.Set (Set)
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import           Data.Traversable
 import           Development.IDE (getFilesOfInterestUntracked, ShowDiagnostic (ShowDiag), srcSpanToRange)
 import           Development.IDE (hscEnv)
@@ -67,6 +68,10 @@ import           Wingman.Judgements.Theta
 import           Wingman.Range
 import           Wingman.StaticPlugin (pattern WingmanMetaprogram, pattern MetaprogramSyntax)
 import           Wingman.Types
+import System.Directory (getXdgDirectory, XdgDirectory (XdgConfig), doesDirectoryExist, createDirectory, listDirectory)
+import Control.Monad.Extra (unlessM)
+import System.FilePath ((</>))
+import Wingman.Metaprogramming.Parser (parseMetaprogram)
 
 
 tacticDesc :: T.Text -> T.Text
@@ -213,8 +218,19 @@ judgementForHole state nfp range cfg = do
       -- involved, so it's not crucial to track ages.
       let henv = untrackedStaleValue $ hscenv
       eps <- liftIO $ readIORef $ hsc_EPS $ hscEnv henv
+      TrackedStale mpc _ <- stale GetMetaprogramCache
 
-      (jdg, ctx) <- liftMaybe $ mkJudgementAndContext cfg g binds new_rss tcg (hscEnv henv) eps
+      (jdg, ctx) <-
+        liftMaybe $
+          mkJudgementAndContext
+            (unTrack mpc)
+            cfg
+            g
+            binds
+            new_rss
+            tcg
+            (hscEnv henv)
+            eps
       let mp = getMetaprogramAtSpan (fmap RealSrcSpan tcg_rss) tcg_t
 
       dflags <- getIdeDynflags state nfp
@@ -228,11 +244,12 @@ judgementForHole state nfp range cfg = do
 
 
 holeSortFor :: Maybe T.Text -> HoleSort
-holeSortFor = maybe Hole Metaprogram
+holeSortFor = maybe Hole MetaprogramHole
 
 
 mkJudgementAndContext
-    :: Config
+    :: MetaprogramCache
+    -> Config
     -> Type
     -> TrackedStale Bindings
     -> Tracked 'Current RealSrcSpan
@@ -240,12 +257,12 @@ mkJudgementAndContext
     -> HscEnv
     -> ExternalPackageState
     -> Maybe (Judgement, Context)
-mkJudgementAndContext cfg g (TrackedStale binds bmap) rss (TrackedStale tcg tcgmap) hscenv eps = do
+mkJudgementAndContext mpc cfg g (TrackedStale binds bmap) rss (TrackedStale tcg tcgmap) hscenv eps = do
   binds_rss <- mapAgeFrom bmap rss
   tcg_rss <- mapAgeFrom tcgmap rss
 
   let tcs = fmap tcg_binds tcg
-      ctx = mkContext cfg
+      ctx = mkContext mpc cfg
               (mapMaybe (sequenceA . (occName *** coerce))
                 $ unTrack
                 $ getDefiningBindings <$> binds <*> binds_rss)
@@ -498,13 +515,83 @@ showLspMessage = sendNotification SWindowShowMessage
 -- This rule only exists for generating file diagnostics
 -- so the RuleResult is empty
 data WriteDiagnostics = WriteDiagnostics
-    deriving (Eq, Show, Typeable, Generic)
-
-instance Hashable WriteDiagnostics
-instance NFData   WriteDiagnostics
-instance Binary   WriteDiagnostics
-
+  deriving stock (Eq, Show, Typeable, Generic)
+  deriving anyclass (Hashable, NFData, Binary)
 type instance RuleResult WriteDiagnostics = ()
+
+data GetMetaprogramCache = GetMetaprogramCache
+  deriving stock (Eq, Show, Typeable, Generic)
+  deriving anyclass (Hashable, NFData, Binary)
+type instance RuleResult GetMetaprogramCache = MetaprogramCache
+
+data GetMetaprogramFile = GetMetaprogramFile
+  deriving stock (Eq, Show, Typeable, Generic)
+  deriving anyclass (Hashable, NFData, Binary)
+type instance RuleResult GetMetaprogramFile = Metaprogram
+
+data GetMetaprogramFiles = GetMetaprogramFiles
+  deriving stock (Eq, Show, Typeable, Generic)
+  deriving anyclass (Hashable, NFData, Binary)
+type instance RuleResult GetMetaprogramFiles = [NormalizedFilePath]
+
+configDir :: IO FilePath
+configDir = do
+  dir <- getXdgDirectory XdgConfig "hls-tactics-plugin"
+  unlessM (doesDirectoryExist dir) $ createDirectory dir
+  pure dir
+
+
+getKnownFiles :: IO [NormalizedFilePath]
+getKnownFiles = do
+  dir    <- configDir
+  files  <- fmap (dir </>) <$> listDirectory dir
+  pure $ fmap toNormalizedFilePath files
+
+wingmanMetaprogramCacheRules :: PluginId -> Rules ()
+wingmanMetaprogramCacheRules _ = do
+  define $ \GetMetaprogramFiles _ -> do
+    nfps <- liftIO getKnownFiles
+    traceMX "metaprogram files" nfps
+    pure $ ([], Just nfps)
+
+  define $ \GetMetaprogramFile nfp -> do
+    traceMX "getting metaprogram " nfp
+    -- mtime <- use GetModificationTime nfp
+    contents <- liftIO $ T.readFile $ fromNormalizedFilePath nfp
+    traceMX "got metaprogram " contents
+    pure
+      --   (Just $ BS.pack $ show mtime ,)
+      $ case parseMetaprogram mempty contents of
+          -- Left err ->
+          --   ( [ (nfp
+          --       , ShowDiag
+          --       , Diagnostic
+          --           (Range (Position 0 0)
+          --                  (Position 0 0))
+          --           Nothing
+          --           Nothing
+          --           Nothing
+          --           (T.pack err)
+          --           Nothing
+          --           Nothing
+          --       )
+          --     ]
+          --   , Nothing
+          --   )
+          mp -> ([], Just $ Metaprogram "yallo" False False mp)
+
+  define $ \GetMetaprogramCache nfp ->
+    use GetMetaprogramFiles nfp >>= \case
+      Nothing -> do
+        traceM "no files!"
+        pure ([], Nothing)
+      Just fps -> do
+        traceMX "some files" fps
+        mmps <- fmap sequenceA $ traverse (use GetMetaprogramFile) fps
+        case mmps of
+          Just mps -> pure ([], Just $ MetaprogramCache $ M.fromList $ zip ["yallo"] mps)
+          Nothing -> pure ([], Nothing)
+
 
 wingmanRules :: PluginId -> Rules ()
 wingmanRules plId = do
@@ -515,31 +602,41 @@ wingmanRules plId = do
         use GetParsedModule nfp >>= \case
           Nothing ->
             pure ([], Nothing)
-          Just pm -> do
-            let holes :: [Range]
-                holes =
-                  everything (<>)
-                    (mkQ mempty $ \case
-                      L span (HsVar _ (L _ name))
-                        | isHole (occName name) ->
-                            maybeToList $ srcSpanToRange span
-                      L span (HsUnboundVar _ (TrueExprHole occ))
-                        | isHole occ ->
-                            maybeToList $ srcSpanToRange span
-#if __GLASGOW_HASKELL__ <= 808
-                      L span (EWildPat _) ->
-                        maybeToList $ srcSpanToRange span
-#endif
-                      (_ :: LHsExpr GhcPs) -> mempty
-                    ) $ pm_parsed_source pm
-            pure
-              ( fmap (\r -> (nfp, ShowDiag, mkDiagnostic severity r)) holes
-              , Just ()
-              )
+          Just pm ->
+            mkWingmanHoleDiagnostics nfp pm severity
 
   action $ do
     files <- getFilesOfInterestUntracked
     void $ uses WriteDiagnostics $ Map.keys files
+
+
+mkWingmanHoleDiagnostics
+    :: Applicative f
+    => a
+    -> ParsedModule
+    -> DiagnosticSeverity
+    -> f ([(a, ShowDiagnostic, Diagnostic)], Maybe ())
+mkWingmanHoleDiagnostics nfp pm severity = do
+  let holes :: [Range]
+      holes =
+        everything (<>)
+          (mkQ mempty $ \case
+            L span (HsVar _ (L _ name))
+              | isHole (occName name) ->
+                  maybeToList $ srcSpanToRange span
+            L span (HsUnboundVar _ (TrueExprHole occ))
+              | isHole occ ->
+                  maybeToList $ srcSpanToRange span
+#if __GLASGOW_HASKELL__ <= 808
+            L span (EWildPat _) ->
+              maybeToList $ srcSpanToRange span
+#endif
+            (_ :: LHsExpr GhcPs) -> mempty
+          ) $ pm_parsed_source pm
+  pure
+    ( fmap (\r -> (nfp, ShowDiag, mkDiagnostic severity r)) holes
+    , Just ()
+    )
 
 
 mkDiagnostic :: DiagnosticSeverity -> Range -> Diagnostic

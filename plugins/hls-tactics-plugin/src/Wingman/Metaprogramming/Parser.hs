@@ -8,14 +8,15 @@ module Wingman.Metaprogramming.Parser where
 
 import qualified Control.Monad.Combinators.Expr as P
 import qualified Control.Monad.Error.Class as E
-import           Control.Monad.Reader (ask)
+import           Control.Monad.Reader
 import           Data.Functor
+import qualified Data.Map as M
 import           Data.Maybe (listToMaybe)
 import qualified Data.Text as T
 import qualified Refinery.Tactic as R
 import qualified Text.Megaparsec as P
 import           Wingman.Auto
-import           Wingman.Machinery (useNameFromHypothesis, getOccNameType, createImportedHyInfo, useNameFromContext, lookupNameInContext, getCurrentDefinitions)
+import           Wingman.Machinery (useNameFromHypothesis, useNameFromContext, getCurrentDefinitions)
 import           Wingman.Metaprogramming.Lexer
 import           Wingman.Metaprogramming.Parser.Documentation
 import           Wingman.Metaprogramming.ProofState (proofState, layout)
@@ -41,8 +42,11 @@ variadic_occ :: T.Text -> ([OccName] -> TacticsM ()) -> Parser (TacticsM ())
 variadic_occ name tac = tac <$> (identifier name *> P.many variable)
 
 
-commands :: [SomeMetaprogramCommand]
-commands =
+mkCommand :: Metaprogram -> SomeMetaprogramCommand
+mkCommand mp = command (mp_name mp) Nondeterministic Nullary "" (pure $ mp_program mp) []
+
+commands :: MetaprogramCache -> [SomeMetaprogramCommand]
+commands mpc =
   [ command "assumption" Nondeterministic Nullary
       "Use any term in the hypothesis that can unify with the current goal."
       (pure assumption)
@@ -385,7 +389,7 @@ commands =
           (Just "r")
           "(_2 :: a -> r) (_1 :: a)"
       ]
-  ]
+  ] <> foldMap (pure . mkCommand) (M.elems $ unMetaprogramCache mpc)
 
 
 
@@ -393,7 +397,7 @@ oneTactic :: Parser (TacticsM ())
 oneTactic =
   P.choice
     [ parens tactic
-    , makeParser commands
+    , makeParser . commands =<< ask
     ]
 
 
@@ -430,7 +434,8 @@ attempt_it
     -> String
     -> IO (Either String String)
 attempt_it ctx jdg program =
-  case P.runParser tacticProgram "<splice>" (T.pack program) of
+  case flip runReader (ctx_mpc ctx)
+          $ P.runParserT tacticProgram "<splice>" (T.pack program) of
     Left peb -> pure $ Left $ wrapError $ P.errorBundlePretty peb
     Right tt -> do
       res <- runTactic
@@ -442,10 +447,11 @@ attempt_it ctx jdg program =
           Right rtr -> Right $ layout $ proofState rtr
 
 
-parseMetaprogram :: T.Text -> TacticsM ()
-parseMetaprogram
+parseMetaprogram :: MetaprogramCache -> T.Text -> TacticsM ()
+parseMetaprogram mpc
     = either (const $ pure ()) id
-    . P.runParser tacticProgram "<splice>"
+    . flip runReader mpc
+    . P.runParserT tacticProgram "<splice>"
 
 
 ------------------------------------------------------------------------------
@@ -456,6 +462,6 @@ writeDocumentation =
     unlines
       [ "# Wingman Metaprogram Command Reference"
       , ""
-      , prettyReadme commands
+      , prettyReadme $ commands mempty
       ]
 

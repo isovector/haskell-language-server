@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns      #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
@@ -14,6 +15,7 @@ module Wingman.Types
   ) where
 
 import           ConLike (ConLike)
+import           Control.DeepSeq (NFData, rnf)
 import           Control.Lens hiding (Context)
 import           Control.Monad.Reader
 import           Control.Monad.State
@@ -21,6 +23,7 @@ import           Data.Coerce
 import           Data.Function
 import           Data.Generics.Product (field)
 import           Data.List.NonEmpty (NonEmpty (..))
+import           Data.Map (Map)
 import           Data.Semigroup
 import           Data.Set (Set)
 import           Data.Text (Text)
@@ -425,6 +428,7 @@ data Context = Context
   , ctx_hscEnv       :: HscEnv
   , ctx_occEnv       :: OccEnv [GlobalRdrElt]
   , ctx_module       :: Module
+  , ctx_mpc          :: MetaprogramCache
   }
 
 instance Show Context where
@@ -447,10 +451,11 @@ emptyContext
       , ctxConfig = emptyConfig
       , ctxFamInstEnvs = mempty
       , ctxInstEnvs = InstEnvs mempty mempty mempty
-      , ctxTheta = mempty
+      , ctxTheta   = mempty
       , ctx_hscEnv = error "empty hsc env from emptyContext"
       , ctx_occEnv = emptyOccEnv
       , ctx_module = error "empty module from emptyContext"
+      , ctx_mpc    = mempty
       }
 
 
@@ -512,7 +517,7 @@ instance Show UserFacingMessage where
   show (InfrastructureError t) = "Internal error: " <> T.unpack t
 
 
-data HoleSort = Hole | Metaprogram T.Text
+data HoleSort = Hole | MetaprogramHole T.Text
   deriving (Eq, Ord, Show)
 
 data HoleJudgment = HoleJudgment
@@ -522,4 +527,26 @@ data HoleJudgment = HoleJudgment
   , hj_dflags    :: DynFlags
   , hj_hole_sort :: HoleSort
   }
+
+instance Show Metaprogram where
+  show = mappend "<abstract metaprogram> " . T.unpack . mp_name
+
+data Metaprogram = Metaprogram
+  { mp_name             :: !Text
+  , mp_known_by_auto    :: !Bool
+  , mp_show_code_action :: !Bool
+  , mp_program          :: !(TacticsM ())
+  }
+  deriving stock Generic
+
+instance NFData Metaprogram where
+  rnf (!(Metaprogram !_ !_ !_ !_)) = ()
+
+newtype MetaprogramCache = MetaprogramCache
+  { unMetaprogramCache :: Map Text Metaprogram
+  }
+  deriving stock (Show, Generic)
+  deriving newtype (Semigroup, Monoid)
+  deriving anyclass (NFData)
+
 

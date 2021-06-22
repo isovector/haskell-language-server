@@ -36,6 +36,7 @@ import           Wingman.Machinery (useNameFromHypothesis)
 import           Wingman.Metaprogramming.Parser (parseMetaprogram)
 import           Wingman.Tactics
 import           Wingman.Types
+import Control.Monad.Reader (asks)
 
 
 ------------------------------------------------------------------------------
@@ -52,7 +53,9 @@ commandTactic DestructAll            = const destructAll
 commandTactic UseDataCon             = userSplit . mkVarOcc . T.unpack
 commandTactic Refine                 = const refine
 commandTactic BeginMetaprogram       = const metaprogram
-commandTactic RunMetaprogram         = parseMetaprogram
+commandTactic RunMetaprogram         = \cmd -> do
+  mpc <- asks ctx_mpc
+  parseMetaprogram mpc cmd
 
 
 ------------------------------------------------------------------------------
@@ -213,7 +216,7 @@ requireHoleSort p tp tpd =
 withMetaprogram :: (T.Text -> TacticProvider) -> TacticProvider
 withMetaprogram tp tpd =
   case tpd_hole_sort tpd of
-    Metaprogram mp -> tp mp tpd
+    MetaprogramHole mp -> tp mp tpd
     _ -> pure []
 
 

@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Wingman.Context where
 
 import           Bag
@@ -20,14 +22,15 @@ import           Wingman.Types
 
 
 mkContext
-    :: Config
+    :: MetaprogramCache
+    -> Config
     -> [(OccName, CType)]
     -> TcGblEnv
     -> HscEnv
     -> ExternalPackageState
     -> [Evidence]
     -> Context
-mkContext cfg locals tcg hscenv eps ev = fix $ \ctx ->
+mkContext mpc cfg locals tcg hscenv eps ev = fix $ \ctx ->
   Context
     { ctxDefiningFuncs
         = fmap (second $ coerce $ normalizeType ctx) locals
@@ -50,6 +53,7 @@ mkContext cfg locals tcg hscenv eps ev = fix $ \ctx ->
     , ctx_hscEnv = hscenv
     , ctx_occEnv = tcg_rdr_env tcg
     , ctx_module = extractModule tcg
+    , ctx_mpc    = mpc
     }
 
 
