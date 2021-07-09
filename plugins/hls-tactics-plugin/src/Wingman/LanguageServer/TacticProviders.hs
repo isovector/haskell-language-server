@@ -49,7 +49,7 @@ commandTactic DestructPun            = useNameFromHypothesis destructPun . mkVar
 commandTactic Homomorphism           = useNameFromHypothesis homo . mkVarOcc . T.unpack
 commandTactic DestructLambdaCase     = const destructLambdaCase
 commandTactic HomomorphismLambdaCase = const homoLambdaCase
-commandTactic DestructAll            = const destructAll
+commandTactic DestructGroup            = const destructAll
 commandTactic UseDataCon             = userSplit . mkVarOcc . T.unpack
 commandTactic Refine                 = const refine
 commandTactic BeginMetaprogram       = const metaprogram
@@ -66,7 +66,7 @@ tacticKind DestructPun            = "caseSplitPun"
 tacticKind Homomorphism           = "homomorphicCaseSplit"
 tacticKind DestructLambdaCase     = "lambdaCase"
 tacticKind HomomorphismLambdaCase = "homomorphicLambdaCase"
-tacticKind DestructAll            = "splitFuncArgs"
+tacticKind DestructGroup            = "splitFuncArgs"
 tacticKind UseDataCon             = "useConstructor"
 tacticKind Refine                 = "refine"
 tacticKind BeginMetaprogram       = "beginMetaprogram"
@@ -84,7 +84,7 @@ tacticPreferred DestructPun            = False
 tacticPreferred Homomorphism           = False
 tacticPreferred DestructLambdaCase     = False
 tacticPreferred HomomorphismLambdaCase = False
-tacticPreferred DestructAll            = True
+tacticPreferred DestructGroup            = True
 tacticPreferred UseDataCon             = True
 tacticPreferred Refine                 = True
 tacticPreferred BeginMetaprogram       = False
@@ -129,12 +129,10 @@ commandProvider HomomorphismLambdaCase =
   requireExtension LambdaCase $
     filterGoalType (liftLambdaCase False homoFilter) $
       provide HomomorphismLambdaCase ""
-commandProvider DestructAll =
+commandProvider DestructGroup =
   requireHoleSort (== Hole) $
     withJudgement $ \jdg ->
-      case _jIsTopHole jdg && jHasBoundArgs jdg of
-        True  -> provide DestructAll ""
-        False -> mempty
+      provide DestructGroup ""
 commandProvider UseDataCon =
   requireHoleSort (== Hole) $
   withConfig $ \cfg ->

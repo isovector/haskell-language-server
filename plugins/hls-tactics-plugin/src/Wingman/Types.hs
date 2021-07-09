@@ -56,7 +56,7 @@ data TacticCommand
   | Homomorphism
   | DestructLambdaCase
   | HomomorphismLambdaCase
-  | DestructAll
+  | DestructGroup
   | UseDataCon
   | Refine
   | BeginMetaprogram
@@ -74,7 +74,7 @@ tacticTitle = (mappend "Wingman: " .) . go
     go Homomorphism var         = "Homomorphic case split on " <> var
     go DestructLambdaCase _     = "Lambda case split"
     go HomomorphismLambdaCase _ = "Homomorphic lambda case split"
-    go DestructAll _            = "Split all function arguments"
+    go DestructGroup _          = "Split last binding group"
     go UseDataCon dcon          = "Use constructor " <> dcon
     go Refine _                 = "Refine hole"
     go BeginMetaprogram _       = "Use custom tactic block"

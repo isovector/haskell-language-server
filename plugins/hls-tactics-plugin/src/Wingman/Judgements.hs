@@ -370,7 +370,6 @@ jHasBoundArgs :: Judgement' a -> Bool
 jHasBoundArgs
   = not
   . null
-  . filter (isTopLevel . hi_provenance)
   . unHypothesis
   . jLocalHypothesis
 

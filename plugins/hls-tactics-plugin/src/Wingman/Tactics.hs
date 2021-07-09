@@ -8,7 +8,7 @@ module Wingman.Tactics
 import           ConLike (ConLike(RealDataCon))
 import           Control.Applicative (Alternative(empty))
 import           Control.Lens ((&), (%~), (<>~))
-import           Control.Monad (filterM)
+import           Control.Monad (filterM, join)
 import           Control.Monad (unless)
 import           Control.Monad.Except (throwError)
 import           Control.Monad.Extra (anyM)
@@ -43,6 +43,7 @@ import           Wingman.Machinery
 import           Wingman.Naming
 import           Wingman.StaticPlugin (pattern MetaprogramSyntax)
 import           Wingman.Types
+import Data.Function (on)
 
 
 ------------------------------------------------------------------------------
@@ -377,18 +378,33 @@ destructAll = do
   jdg <- goal
   let args = fmap fst
            $ sortOn snd
-           $ mapMaybe (\(hi, prov) ->
-              case prov of
-                TopLevelArgPrv _ idx _ -> pure (hi, idx)
-                _ -> Nothing
-                )
            $ fmap (\hi -> (hi, hi_provenance hi))
            $ filter (isAlgType . unCType . hi_type)
+           $ join
+           $ take 1
+           $ traceIdX "grouped hyp"
+           $ groupBy (eqProvenance `on` hi_provenance)
+           $ traceIdX "ungrouped hy"
            $ unHypothesis
            $ jHypothesis jdg
   for_ args $ \arg -> do
     subst <- getSubstForJudgement =<< goal
     destruct $ fmap (coerce substTy subst) arg
+
+
+eqProvenance :: Provenance -> Provenance -> Bool
+eqProvenance (TopLevelArgPrv on _ _) (TopLevelArgPrv on' _ _) = on == on'
+eqProvenance
+  (PatternMatchPrv (PatVal m_on set un _))
+  (PatternMatchPrv (PatVal ma set' un' _))
+    = and [m_on == ma, set == set', un == un']
+eqProvenance (ClassMethodPrv un) (ClassMethodPrv un') = un == un'
+eqProvenance UserPrv UserPrv = True
+eqProvenance ImportPrv ImportPrv = True
+eqProvenance RecursivePrv RecursivePrv = True
+eqProvenance (DisallowedPrv dr prove2) (DisallowedPrv dr' prove3) = and
+ [ dr == dr', prove2 == prove3 ]
+eqProvenance _ _ = False
 
 --------------------------------------------------------------------------------
 -- | User-facing tactic to implement "Use constructor <x>"
